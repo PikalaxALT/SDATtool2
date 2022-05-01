@@ -57,20 +57,20 @@ sseq_commands = [
     SseqCommand(),
     SseqCommand(),
     SseqCommand(),
-    SseqCommand(),
-    SseqCommand(),
-    SseqCommand(),
-    SseqCommand(),
-    SseqCommand(),
-    SseqCommand(),
-    SseqCommand(),
-    SseqCommand(),
-    SseqCommand(),
-    SseqCommand(),
-    SseqCommand(),
-    SseqCommand(),
-    SseqCommand(),
-    SseqCommand(),
+    SseqCommand('Variable_B0', 3),
+    SseqCommand('Variable_B1', 3),
+    SseqCommand('Variable_B2', 3),
+    SseqCommand('Variable_B3', 3),
+    SseqCommand('Variable_B4', 3),
+    SseqCommand('Variable_B5', 3),
+    SseqCommand('Variable_B6', 3),
+    SseqCommand('Variable_B7', 3),
+    SseqCommand('Variable_B8', 3),
+    SseqCommand('Variable_B9', 3),
+    SseqCommand('Variable_BA', 3),
+    SseqCommand('Variable_BB', 3),
+    SseqCommand('Variable_BC', 3),
+    SseqCommand('Variable_BD', 3),
     SseqCommand(),
     SseqCommand(),
     SseqCommand('Pan', 1),
@@ -147,6 +147,20 @@ class SseqCommandId(enum.Enum):
     Pointer = 0x93
     Jump = 0x94
     Call = 0x95
+    Variable_B0 = 0xB0
+    Variable_B1 = 0xB1
+    Variable_B2 = 0xB2
+    Variable_B3 = 0xB3
+    Variable_B4 = 0xB4
+    Variable_B5 = 0xB5
+    Variable_B6 = 0xB6
+    Variable_B7 = 0xB7
+    Variable_B8 = 0xB8
+    Variable_B9 = 0xB9
+    Variable_BA = 0xBA
+    Variable_BB = 0xBB
+    Variable_BC = 0xBC
+    Variable_BD = 0xBD
     Pan = 0xC0
     Volume = 0xC1
     MasterVolume = 0xC2
