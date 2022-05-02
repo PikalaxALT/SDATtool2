@@ -1,6 +1,7 @@
 import typing
 import enum
 import os
+from named_struct import NamedStruct, DataClass
 
 
 class FileType(typing.NamedTuple):
@@ -173,3 +174,23 @@ class SdatIO:
         else:
             raise ValueError('unrecognized argument for "whence"')
         self.cursor = min(max(new, 0), len(self.data))
+
+    def read_struct(self, struct: NamedStruct, offset: int = None):
+        """Reads a C struct from the SDAT at an offset.
+        If offset is None (the default), the cursor is advanced."""
+        ret = struct.unpack_from(self.data, offset if offset is not None else self.cursor)
+        if offset is None:
+            self.cursor += struct.size
+        return ret
+
+    def read_array(self, struct: NamedStruct, offset: int = None):
+        """Reads an array of C structs from the SDAT at an offset.
+        If offset is None (the default), the cursor is advanced."""
+        ret = list(struct.unpack_array_from(self.data, offset if offset is not None else self.cursor))
+        if offset is None:
+            self.cursor += 4 + len(ret) * struct.size
+        return ret
+
+    def write_struct(self, struct: NamedStruct, obj: DataClass, offset: int = None):
+        if offset is None:
+            self.data += struct.pack(obj)
