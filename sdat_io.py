@@ -1,7 +1,7 @@
 import typing
 import enum
 import os
-from named_struct import NamedStruct, DataClass
+from named_struct import NamedStruct, CStruct
 
 
 class FileType(typing.NamedTuple):
@@ -15,16 +15,16 @@ file_types = [
     FileType('.ssar', b'SSAR'),
     FileType('.sbnk', b'SBNK'),
     FileType('.swar', b'SWAR'),
-    FileType(),
-    FileType(),
-    FileType(),
+    None,
+    None,
+    None,
     FileType('.strm', b'STRM'),
-    FileType(),
+    None,
 ]
 
 
-class InfoType(enum.Enum):
-    """Enum for SDAT member types"""
+class CoreInfoType(enum.Enum):
+    """Enum for the core SDAT member types"""
     SEQ = 0
     SEQARC = 1
     BANK = 2
@@ -33,12 +33,16 @@ class InfoType(enum.Enum):
     GROUP = 5
     PLAYER2 = 6
     STRM = 7
-    FILE = 8
 
     @property
     def file_type(self):
         """Returns the FileType corresponding to the enum value."""
         return file_types[self.value]
+
+
+class InfoType(CoreInfoType):
+    """Enum for SDAT member types"""
+    FILE = 8
 
 
 class SdatIO:
@@ -136,12 +140,17 @@ class SdatIO:
             real_index = len(self.filename_id)
         return self.names[InfoType.FILE.value][real_index] + self.file_types[real_index].file_type.ext
 
-    def get_string(self):
-        """Reads a string from the buffer and advances the cursor to the byte past the null terminator.
-        Returns the string that was read."""
-        end = self.data.find(b'\0', self.cursor)
-        ret = self.data[self.cursor:end].decode('ascii')
-        self.cursor = end + 1
+    def get_string(self, base, offset=0):
+        """Reads a string from the buffer at the given offset.
+        If offset is 0 or not supplied, returns an empty string.
+        This handles the case where a symbol is anonymous."""
+        if offset == 0:
+            return ''
+        pos = base + offset
+        end = self.data.find(b'\0', pos)
+        ret = self.data[pos:end].decode('ascii')
+        if offset is None:
+            self.cursor = end + 1
         return ret
 
     def align(self, alignment=4, *, out=False):
@@ -175,7 +184,7 @@ class SdatIO:
             raise ValueError('unrecognized argument for "whence"')
         self.cursor = min(max(new, 0), len(self.data))
 
-    def read_struct(self, struct: NamedStruct, offset: int = None):
+    def read_struct(self, struct: NamedStruct, offset: int = None) -> CStruct:
         """Reads a C struct from the SDAT at an offset.
         If offset is None (the default), the cursor is advanced."""
         ret = struct.unpack_from(self.data, offset if offset is not None else self.cursor)
@@ -183,7 +192,7 @@ class SdatIO:
             self.cursor += struct.size
         return ret
 
-    def read_array(self, struct: NamedStruct, offset: int = None):
+    def read_array(self, struct: NamedStruct, offset: int = None) -> list[CStruct]:
         """Reads an array of C structs from the SDAT at an offset.
         If offset is None (the default), the cursor is advanced."""
         ret = list(struct.unpack_array_from(self.data, offset if offset is not None else self.cursor))
@@ -191,7 +200,7 @@ class SdatIO:
             self.cursor += 4 + len(ret) * struct.size
         return ret
 
-    def write_struct(self, obj: DataClass, offset: int = None):
+    def write_struct(self, obj: CStruct, offset: int = None):
         """Writes a single dataclass as a C object.
         If offset is None (the default), the object is appended to the buffer
         and the cursor is advanced."""
@@ -201,14 +210,14 @@ class SdatIO:
         else:
             obj.pack_into(self.data, offset)
 
-    def write_array(self, objs: list[DataClass], offset: int = None):
+    def write_array(self, objs: list[CStruct], offset: int = None):
         """Writes a list of dataclass as a C length-encoded array.
         If offset is None (the default), the object is appended to the buffer
         and the cursor is advanced."""
         if not objs:
             self.write_long(offset, 0)
         else:
-            cls = objs[0].__class__
+            cls: NamedStruct = objs[0].__class__
             if offset is None:
                 self.data += cls.pack_array(objs)
                 self.cursor = len(self.data)

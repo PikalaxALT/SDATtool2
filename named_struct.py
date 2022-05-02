@@ -1,7 +1,12 @@
 import struct
 import dataclasses
 import typing
+import collections.abc
 from utils import classproperty
+
+
+CStruct = typing.TypeVar('CStruct')
+NamedStruct = type[CStruct]
 
 
 class DataClass:
@@ -30,6 +35,9 @@ class DataClass:
             raise NotImplementedError
         super().__init__(*args, **kwargs)
 
+    def __post_init__(self):
+        pass
+
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__()
         fmtstr = {
@@ -51,19 +59,19 @@ class DataClass:
         return value.to_bytes(4, cls.__byteorder__)
 
     @classmethod
-    def unpack(cls, buffer: typing.ByteString):
+    def unpack(cls, buffer: typing.ByteString) -> CStruct:
         """Like struct.Struct().unpack, but returns an instance of the
         data class instead of a tuple."""
         return cls(*cls._struct.unpack(buffer))
 
     @classmethod
-    def unpack_from(cls, buffer: typing.ByteString, offset=0):
+    def unpack_from(cls, buffer: typing.ByteString, offset=0) -> CStruct:
         """Like struct.Struct().unpack_from, but returns an instance of the
         data class instead of a tuple."""
         return cls(*cls._struct.unpack_from(buffer, offset=offset))
 
     @classmethod
-    def iter_unpack(cls, buffer: typing.ByteString):
+    def iter_unpack(cls, buffer: typing.ByteString) -> collections.abc.Iterator[CStruct]:
         """Like struct.Struct().iter_unpack, but returns an instance of the
         data class instead of a tuple."""
         for tup in cls._struct.iter_unpack(buffer):
@@ -96,7 +104,7 @@ class DataClass:
         self._struct.pack_into(buffer, offset, *dataclasses.astuple(self))
     
     @classmethod
-    def pack_array(cls, array: 'list[DataClass]'):
+    def pack_array(cls, array: 'list[CStruct]'):
         """Packs a length-encoded array of DataClass into bytes"""
         ret = cls.pack_word(len(array))
         for obj in array:
@@ -104,7 +112,7 @@ class DataClass:
         return ret
     
     @classmethod
-    def pack_array_into(cls, buffer: typing.ByteString, offset: int, array: 'list[DataClass]'):
+    def pack_array_into(cls, buffer: typing.ByteString, offset: int, array: 'list[CStruct]'):
         """Packs a length-encoded array of DataClass into an existing buffer"""
         buffer[offset:offset + 4] = cls.pack_word(len(array))
         for i, obj in enumerate(array):
@@ -114,6 +122,3 @@ class DataClass:
     def size(cls):
         """Gets the size of the underlying struct."""
         return cls._struct.size
-
-
-NamedStruct = type[DataClass]

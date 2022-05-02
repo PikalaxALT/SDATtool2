@@ -1,8 +1,21 @@
 import argparse
+import dataclasses
+import json
 import typing
+import os
 
+import info
 from version import __version__
-from sdat_io import SdatIO
+from sdat_io import SdatIO, InfoType, CoreInfoType
+from utils import Timer
+
+
+f"""SDATtool2 convert between an SDAT file and its components.
+
+For help, run python -m {os.path.dirname(__file__)} -h
+
+Requires Python 3.9 or later
+"""
 
 
 class Namespace(argparse.Namespace):
@@ -21,22 +34,70 @@ class Namespace(argparse.Namespace):
 
     def main_unpack(self):
         """The main logic for unpacking an SDAT into a directory tree"""
+
+        # Ensure the output directory exists
+        os.makedirs(self.folder, exist_ok=True)
+
+        # Read the SDAT file as a wrapped buffer
         with open(self.SDATfile, 'rb') as fp:
             self.SDAT = SdatIO(fp)
 
+        # Read the header
+        header = self.SDAT.read_struct(info.NNSSndArcHeader)
+
+        # Read the symbol block
+        if header.symbolDataOffset != 0:
+            symb_header = self.SDAT.read_struct(info.NNSSndSymbolAndInfoOffsets, header.symbolDataOffset)
+            symbols = info.SymbolData.from_offsets(symb_header, header.symbolDataOffset, self.SDAT)
+        else:
+            symb_header = None
+            symbols = None
+
+        # Read the file block
+        fat_header = self.SDAT.read_struct(info.NNSSndArcFat, header.fatOffset)
+        fat_entries = self.SDAT.read_array(info.NNSSndArcFileInfo, header.fatOffset + fat_header.size)
+        files = [x.read_file(header.fileImageOffset, self.SDAT) for x in fat_entries]
+
+        # Read the info block
+        info_header = self.SDAT.read_struct(info.NNSSndSymbolAndInfoOffsets, header.infoOffset)
+        infos = info.InfoData.from_offsets(info_header, header.infoOffset, self.SDAT)
+        infos.set_symbols(symbols)
+
+        # Dump the info block
+        info_dict = infos.to_dict()
+        with open(os.path.join(self.folder, 'Info.json'), 'w') as outf:
+            json.dump(info_dict, outf)
+
+        # Dump the files
+        infos.dump_files(files, self.folder)
+        with open(os.path.join(self.folder, 'Files.json'), 'w') as outf:
+            json.dump(infos.filenames, outf)
+
     def main_build(self):
         """The main logic for building an SDAT from a directory tree"""
+
+        # Create an empty SDAT buffer
         self.SDAT = SdatIO()
+        ...
 
     def main(self):
         """The main logic of the program"""
-        if self.mode:
-            self.main_build()
-        else:
-            self.main_unpack()
+
+        # Default io dir is the stem of the SDAT filename
+        if self.folder is None:
+            self.folder, _ = os.path.splitext(self.SDATfile)
+
+        # Sanity checking
+        assert self.folder != self.SDATfile, 'Input and output cannot match'
+
+        # Branch the logic based on mode of operation
+        method = self.main_build if self.mode else self.main_unpack
+        with Timer() as t:
+            method()
+        print(f'Done: {t.toc - t.tic}s')
 
 
-def sync_bool(dest2, *, const=True):
+def sync_bool(dest2: str, *, const=True):
     """Returns an Action which synchronizes a Boolean option
     to a secondary Boolean option.
     Use the const kwarg to make this behave
@@ -45,16 +106,26 @@ def sync_bool(dest2, *, const=True):
         def __init__(self, option_strings, dest,  **kwargs):
             super().__init__(option_strings, dest, default=not const, const=const, **kwargs)
 
-        def __call__(self, parser, namespace, values, option_string=None):
-            super()(parser, namespace, values, option_string=option_string)
+        def __call__(self, parser, namespace, value, option_string=None):
+            super()(parser, namespace, value, option_string=option_string)
             setattr(namespace, dest2, self.const)
 
     return SyncBool
 
 
+def assert_extension(ext: str):
+    """Returns an Action which treats the argument as a filename,
+    verifies its extension, but does not open the file."""
+    class AssertExtension(argparse.Action):
+        def __call__(self, parser, namespace, value, option_string=None):
+            if not value.casefold().endswith(ext.casefold()):
+                raise argparse.ArgumentError(self, f'{value} does not have required extension {ext}')
+            super()(parser, namespace, value, option_string=option_string)
+
+
 def main():
     parser = argparse.ArgumentParser(description=f"SDAT-Tool {__version__}: Unpack/Pack NDS SDAT Files")
-    parser.add_argument("SDATfile")
+    parser.add_argument("SDATfile", action=assert_extension('.sdat'))
     parser.add_argument("folder", nargs="?")
     mode_grp = parser.add_mutually_exclusive_group(required=True)
     mode_grp.add_argument("-u", "--unpack", dest="mode", action="store_false")

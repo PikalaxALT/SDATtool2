@@ -1,3 +1,6 @@
+import time
+
+
 class _ClassPropertyDescriptor(object):
     def __init__(self, fget, fset=None):
         self.fget = fget
@@ -26,3 +29,17 @@ def classproperty(func):
         func = classmethod(func)
 
     return _ClassPropertyDescriptor(func)
+
+
+class Timer:
+    def __init__(self):
+        self.tic = None
+        self.toc = None
+
+    def __enter__(self):
+        self.toc = None
+        self.tic = time.perf_counter()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.toc = time.perf_counter()
