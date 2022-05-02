@@ -191,6 +191,26 @@ class SdatIO:
             self.cursor += 4 + len(ret) * struct.size
         return ret
 
-    def write_struct(self, struct: NamedStruct, obj: DataClass, offset: int = None):
+    def write_struct(self, obj: DataClass, offset: int = None):
+        """Writes a single dataclass as a C object.
+        If offset is None (the default), the object is appended to the buffer
+        and the cursor is advanced."""
         if offset is None:
-            self.data += struct.pack(obj)
+            self.data += obj.pack()
+            self.cursor = len(self.data)
+        else:
+            obj.pack_into(self.data, offset)
+
+    def write_array(self, objs: list[DataClass], offset: int = None):
+        """Writes a list of dataclass as a C length-encoded array.
+        If offset is None (the default), the object is appended to the buffer
+        and the cursor is advanced."""
+        if not objs:
+            self.write_long(offset, 0)
+        else:
+            cls = objs[0].__class__
+            if offset is None:
+                self.data += cls.pack_array(objs)
+                self.cursor = len(self.data)
+            else:
+                cls.pack_array_into(self.data, offset, objs)

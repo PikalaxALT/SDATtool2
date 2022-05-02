@@ -48,7 +48,7 @@ class DataClass:
 
     @classmethod
     def pack_word(cls, value: int):
-        return int.to_bytes(4, cls.__byteorder__)
+        return value.to_bytes(4, cls.__byteorder__)
 
     @classmethod
     def unpack(cls, buffer: typing.ByteString):
@@ -116,4 +116,4 @@ class DataClass:
         return cls._struct.size
 
 
-NamedTuple = type[DataClass]
+NamedStruct = type[DataClass]
