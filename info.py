@@ -29,7 +29,7 @@ class NNSSndArcBankInfo(DataClass):
 
 @dataclasses.dataclass
 class NNSSndArcWaveArcInfo(DataClass):
-    raw: int
+    raw: 'L'
 
     @property
     def fileId(self):
@@ -94,7 +94,7 @@ class NNSSndArcSeqArcOffset(DataClass):
 @dataclasses.dataclass
 class NNSSndSymbolAndInfoOffsets(DataClass):
     kind: 'L'
-    size: 'L'
+    size_: 'L'  # avoid namespace conflict with base class property "size"
     seqOffset: 'L'
     seqArcOffset: 'L'
     bankOffset: 'L'

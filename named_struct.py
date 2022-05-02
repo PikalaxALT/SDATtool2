@@ -4,13 +4,16 @@ import typing
 from utils import classproperty
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(init=False)
 class DataClass:
+    """A base class for"""
     __byteorder__ = 'little'
     _struct: struct.Struct
 
     def __init__(self, *args, **kwargs):
-        pass
+        if self.__class__ is DataClass:
+            raise NotImplementedError
+        super().__init__(*args, **kwargs)
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__()
@@ -27,20 +30,14 @@ class DataClass:
 
     @classmethod
     def unpack(cls, buffer: typing.ByteString):
-        if not dataclasses.is_dataclass(cls):
-            return NotImplemented
         return cls(*cls._struct.unpack(buffer))
 
     @classmethod
     def unpack_from(cls, buffer: typing.ByteString, offset=0):
-        if not dataclasses.is_dataclass(cls):
-            return NotImplemented
         return cls(*cls._struct.unpack_from(buffer, offset=offset))
 
     @classmethod
     def iter_unpack(cls, buffer: typing.ByteString):
-        if not dataclasses.is_dataclass(cls):
-            return NotImplemented
         for tup in cls._struct.iter_unpack(buffer):
             yield cls(*tup)
 
@@ -52,8 +49,6 @@ class DataClass:
 
     @classproperty
     def size(cls):
-        if not dataclasses.is_dataclass(cls):
-            return NotImplemented
         return cls._struct.size
 
 
