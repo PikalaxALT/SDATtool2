@@ -210,16 +210,16 @@ class NNSSndArcOffsetTable(DataClass):
     offset: 'L'
 
     @classmethod
-    def read_all(cls, sbcls: NamedStruct, offset: int, sdat: SdatIO):
-        return [sdat.read_struct(sbcls, offset + x.offset) for x in sdat.read_array(cls, offset)]
+    def read_all(cls, sbcls: NamedStruct, base: int, offset: int, sdat: SdatIO):
+        return [sdat.read_struct(sbcls, base + x.offset) for x in sdat.read_array(cls, base + offset)]
 
     @classmethod
-    def read_arrays(cls, sbcls: NamedStruct, offset: int, sdat: SdatIO, list_factory=list):
-        return [list_factory(sdat.read_array(sbcls, offset + x.offset)) for x in sdat.read_array(cls, offset)]
+    def read_arrays(cls, sbcls: NamedStruct, base: int, offset: int, sdat: SdatIO, list_factory=list):
+        return [list_factory(sdat.read_array(sbcls, base + x.offset)) for x in sdat.read_array(cls, base + offset)]
 
     @classmethod
-    def read_strings(cls, offset: int, sdat: SdatIO):
-        return [sdat.get_string(offset, x.offset) for x in sdat.read_array(cls, offset)]
+    def read_strings(cls, base: int, offset: int, sdat: SdatIO):
+        return [sdat.get_string(base, x.offset) for x in sdat.read_array(cls, base + offset)]
 
 
 # Non-C-types
@@ -234,17 +234,22 @@ class SymbolData:
     strmPlayer: list[str] = dataclasses.field(default_factory=list)
     strm: list[str] = dataclasses.field(default_factory=list)
 
+    def __iter__(self):
+        """Shallow cast to iterator"""
+        for field in dataclasses.fields(self):
+            yield getattr(self, field.name)
+
     @classmethod
     def from_offsets(cls, header: NNSSndSymbolAndInfoOffsets, offset: int, sdat: SdatIO):
         return cls(
-            NNSSndArcOffsetTable.read_strings(offset + header.seqOffset, sdat),
+            NNSSndArcOffsetTable.read_strings(offset, header.seqOffset, sdat),
             NNSSndArcSeqArcOffset.read_seqarc_strings(offset + header.seqArcOffset, sdat),
-            NNSSndArcOffsetTable.read_strings(offset + header.bankOffset, sdat),
-            NNSSndArcOffsetTable.read_strings(offset + header.waveArcOffset, sdat),
-            NNSSndArcOffsetTable.read_strings(offset + header.playerOffset, sdat),
-            NNSSndArcOffsetTable.read_strings(offset + header.groupOffset, sdat),
-            NNSSndArcOffsetTable.read_strings(offset + header.strmPlayerOffset, sdat),
-            NNSSndArcOffsetTable.read_strings(offset + header.strmOffset, sdat),
+            NNSSndArcOffsetTable.read_strings(offset, header.bankOffset, sdat),
+            NNSSndArcOffsetTable.read_strings(offset, header.waveArcOffset, sdat),
+            NNSSndArcOffsetTable.read_strings(offset, header.playerOffset, sdat),
+            NNSSndArcOffsetTable.read_strings(offset, header.groupOffset, sdat),
+            NNSSndArcOffsetTable.read_strings(offset, header.strmPlayerOffset, sdat),
+            NNSSndArcOffsetTable.read_strings(offset, header.strmOffset, sdat),
         )
 
 
@@ -260,25 +265,30 @@ class InfoData:
     strmPlayer: list[NNSSndArcStrmPlayerInfo] = dataclasses.field(default_factory=list)
     strm: list[NNSSndArcStrmInfo] = dataclasses.field(default_factory=list)
 
+    def __iter__(self):
+        """Shallow cast to iterator"""
+        for field in dataclasses.fields(self):
+            yield getattr(self, field.name)
+
     def __post_init__(self):
         self.filenames = []
 
     @classmethod
     def from_offsets(cls, header: NNSSndSymbolAndInfoOffsets, offset: int, sdat: SdatIO):
         return cls(
-            NNSSndArcOffsetTable.read_all(NNSSndArcSeqInfo, offset + header.seqOffset, sdat),
-            NNSSndArcOffsetTable.read_all(NNSSndArcSeqArcInfo, offset + header.seqArcOffset, sdat),
-            NNSSndArcOffsetTable.read_all(NNSSndArcBankInfo, offset + header.bankOffset, sdat),
-            NNSSndArcOffsetTable.read_all(NNSSndArcWaveArcInfo, offset + header.waveArcOffset, sdat),
-            NNSSndArcOffsetTable.read_all(NNSSndArcPlayerInfo, offset + header.playerOffset, sdat),
-            NNSSndArcOffsetTable.read_arrays(NNSSndArcGroupItem, offset + header.groupOffset, sdat, list_factory=NNSSndArcGroupInfo),
-            NNSSndArcOffsetTable.read_all(NNSSndArcStrmPlayerInfo, offset + header.strmPlayerOffset, sdat),
-            NNSSndArcOffsetTable.read_all(NNSSndArcStrmInfo, offset + header.strmOffset, sdat),
+            NNSSndArcOffsetTable.read_all(NNSSndArcSeqInfo, offset, header.seqOffset, sdat),
+            NNSSndArcOffsetTable.read_all(NNSSndArcSeqArcInfo, offset, header.seqArcOffset, sdat),
+            NNSSndArcOffsetTable.read_all(NNSSndArcBankInfo, offset, header.bankOffset, sdat),
+            NNSSndArcOffsetTable.read_all(NNSSndArcWaveArcInfo, offset, header.waveArcOffset, sdat),
+            NNSSndArcOffsetTable.read_all(NNSSndArcPlayerInfo, offset, header.playerOffset, sdat),
+            NNSSndArcOffsetTable.read_arrays(NNSSndArcGroupItem, offset, header.groupOffset, sdat, list_factory=NNSSndArcGroupInfo),
+            NNSSndArcOffsetTable.read_all(NNSSndArcStrmPlayerInfo, offset, header.strmPlayerOffset, sdat),
+            NNSSndArcOffsetTable.read_all(NNSSndArcStrmInfo, offset, header.strmOffset, sdat),
         )
 
     def set_symbols(self, symbols: SymbolData):
-        for infolist, symbollist in zip(dataclasses.astuple(self), dataclasses.astuple(symbols)):
-            for i, info, symb in enumerate(zip(infolist, symbollist)):
+        for infolist, symbollist in zip(self, symbols):
+            for i, (info, symb) in enumerate(zip(infolist, symbollist)):
                 if hasattr(info, 'name'):
                     if info._kind is CoreInfoType.SEQARC:
                         info.name, info.arc_names = symb
@@ -298,10 +308,13 @@ class InfoData:
 
     def to_dict(self):
         result: dict[str, list[dict]] = {}
-        for kind, infolist in zip(CoreInfoType, dataclasses.astuple(self)):
+        for kind, infolist in zip(CoreInfoType, self):
             result[kind.name] = []
             for i, info in enumerate(infolist):
-                result[kind.name].append(dataclasses.asdict(info))
+                if isinstance(info, collections.abc.Iterable):
+                    result[kind.name].append([dataclasses.asdict(x) for x in info])
+                else:
+                    result[kind.name].append(dataclasses.asdict(info))
                 result[kind.name][-1]['name'] = getattr(info, 'name', f'{kind.name}_{i:03d}')
                 if hasattr(info, 'arc_names'):
                     result[kind.name][-1]['arc_names'] = info.arc_names

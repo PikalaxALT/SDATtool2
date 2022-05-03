@@ -33,6 +33,7 @@ class Namespace(argparse.Namespace):
 
     def main_unpack(self):
         """The main logic for unpacking an SDAT into a directory tree"""
+        print('Unpacking...')
 
         # Ensure the output directory exists
         os.makedirs(self.folder, exist_ok=True)
@@ -74,6 +75,8 @@ class Namespace(argparse.Namespace):
 
     def main_build(self):
         """The main logic for building an SDAT from a directory tree"""
+        print('Building...')
+        raise NotImplementedError('SDAT building not yet implemented')
 
         # Create an empty SDAT buffer
         self.SDAT = SdatIO()
@@ -91,9 +94,8 @@ class Namespace(argparse.Namespace):
 
         # Branch the logic based on mode of operation
         method = self.main_build if self.mode else self.main_unpack
-        with Timer() as t:
+        with Timer(print=True) as t:
             method()
-        print(f'Done: {t.toc - t.tic}s')
 
 
 def sync_bool(dest2: str, *, const=True):

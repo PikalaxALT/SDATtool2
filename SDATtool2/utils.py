@@ -32,9 +32,10 @@ def classproperty(func):
 
 
 class Timer:
-    def __init__(self):
+    def __init__(self, *, print=False):
         self.tic = None
         self.toc = None
+        self._print = print
 
     def __enter__(self):
         self.toc = None
@@ -43,3 +44,6 @@ class Timer:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.toc = time.perf_counter()
+        if self._print:
+            status = 'Done' if exc_type is None else 'Failed'
+            print(f'{status}: ({self.toc - self.tic:.3f})')
