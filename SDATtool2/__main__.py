@@ -1,13 +1,12 @@
 import argparse
-import dataclasses
 import json
 import typing
 import os
 
-import info
-from version import __version__
-from sdat_io import SdatIO, InfoType, CoreInfoType
-from utils import Timer
+from . import info
+from .version import __version__
+from .sdat_io import SdatIO
+from .utils import Timer
 
 
 f"""SDATtool2 convert between an SDAT file and its components.

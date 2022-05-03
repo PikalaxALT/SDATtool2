@@ -1,7 +1,7 @@
 import typing
 import enum
 import os
-from named_struct import NamedStruct, CStruct
+from .named_struct import NamedStruct, CStruct
 
 
 class FileType(typing.NamedTuple):
@@ -40,11 +40,6 @@ class CoreInfoType(enum.Enum):
         return file_types[self.value]
 
 
-class InfoType(CoreInfoType):
-    """Enum for SDAT member types"""
-    FILE = 8
-
-
 class SdatIO:
     """Wrapper class for the SDAT buffer"""
 
@@ -53,9 +48,6 @@ class SdatIO:
         If no file is provided, creates an empty SdatIO buffer."""
         self.data = bytearray() if infile is None else bytearray(infile.read())
         self.cursor = 0
-        self.names: list[list[str]] = [[] for _ in InfoType]
-        self.filename_id: list[int] = []
-        self.file_types: list[InfoType] = []
 
     def write(self, x: int, *, size=1, pos: int = None):
         """Writes a value of arbitrary length to the buffer.
@@ -117,28 +109,6 @@ class SdatIO:
         If pos is None, reads from the end of the buffer and advances the cursor.
         Otherwise, reads data at pos."""
         return self.read(size=1, pos=pos)
-
-    def read_item_name(self, listitem: InfoType):
-        """Reads the name of the item referenced in data, and advances the cursor.
-        If the name is not loaded, generates one.
-
-        listitem declares what type of symbol you want."""
-        index = self.read_short(self.cursor)
-        try:
-            ret = self.names[listitem.value][index]
-        except IndexError:
-            ret = '' if index == 0xFFFF and listitem is InfoType.WAVARC else f'{listitem.name}_{index}'
-        self.cursor += 1 if listitem is InfoType.PLAYER else 2
-        return ret
-
-    def read_filename(self):
-        """Reads a file ID and fetches the host FS filename"""
-        index = self.read_short()
-        try:
-            real_index = self.filename_id.index(index)
-        except ValueError:
-            real_index = len(self.filename_id)
-        return self.names[InfoType.FILE.value][real_index] + self.file_types[real_index].file_type.ext
 
     def get_string(self, base, offset=0):
         """Reads a string from the buffer at the given offset.

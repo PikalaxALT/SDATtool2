@@ -2,7 +2,7 @@ import struct
 import dataclasses
 import typing
 import collections.abc
-from utils import classproperty
+from .utils import classproperty
 
 
 CStruct = typing.TypeVar('CStruct')

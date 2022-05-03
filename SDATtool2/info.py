@@ -3,27 +3,14 @@ import dataclasses
 import os
 import typing
 
-from named_struct import DataClass, NamedStruct
-from sdat_io import SdatIO, CoreInfoType
-
-
-class NNSSndArcInfoHasName(DataClass):
-    def __post_init__(self):
-        super().__post_init__()
-        self.name = ''
-
-
-class NNSSndArcInfoHasFile(NNSSndArcInfoHasName):
-    fileId: 'L'
-
-    def __post_init__(self):
-        super().__post_init__()
-        self.filename = ''
+from .named_struct import DataClass, NamedStruct
+from .sdat_io import SdatIO, CoreInfoType
 
 
 @dataclasses.dataclass
-class NNSSndArcSeqInfo(NNSSndArcInfoHasFile):
+class NNSSndArcSeqInfo(DataClass):
     _kind = CoreInfoType.SEQ
+    fileId: 'L'
     bankNo: 'H'
     volume: 'B'
     channelPrio: 'B'
@@ -31,32 +18,47 @@ class NNSSndArcSeqInfo(NNSSndArcInfoHasFile):
     playerNo: 'B'
     reserved: 'H'
 
+    def __post_init__(self):
+        super().__post_init__()
+        self.name = ''
+        self.filename = ''
+
 
 @dataclasses.dataclass
-class NNSSndArcSeqArcInfo(NNSSndArcInfoHasFile):
+class NNSSndArcSeqArcInfo(DataClass):
     _kind = CoreInfoType.SEQARC
+    fileId: 'L'
 
     def __post_init__(self):
         super().__post_init__()
+        self.name = ''
+        self.filename = ''
         self.arc_names: list[str] = []
 
 
 @dataclasses.dataclass
-class NNSSndArcBankInfo(NNSSndArcInfoHasFile):
+class NNSSndArcBankInfo(DataClass):
     _kind = CoreInfoType.BANK
+    fileId: 'L'
     waveArcNo_0: 'H'
     waveArcNo_1: 'H'
     waveArcNo_2: 'H'
     waveArcNo_3: 'H'
 
+    def __post_init__(self):
+        super().__post_init__()
+        self.name = ''
+        self.filename = ''
+
 
 @dataclasses.dataclass
-class NNSSndArcWaveArcInfo(NNSSndArcInfoHasName):
+class NNSSndArcWaveArcInfo(DataClass):
     _kind = CoreInfoType.WAVARC
     raw: 'L'
 
     def __post_init__(self):
         super().__post_init__()
+        self.name = ''
         self.filename = ''
 
     @property
@@ -77,29 +79,43 @@ class NNSSndArcWaveArcInfo(NNSSndArcInfoHasName):
 
 
 @dataclasses.dataclass
-class NNSSndArcStrmInfo(NNSSndArcInfoHasFile):
+class NNSSndArcStrmInfo(DataClass):
     _kind = CoreInfoType.STRM
+    fileId: 'L'
     volume: 'B'
     playerPrio: 'B'
     playerNo: 'B'
     flags: 'B'
 
+    def __post_init__(self):
+        super().__post_init__()
+        self.name = ''
+        self.filename = ''
+
 
 @dataclasses.dataclass
-class NNSSndArcPlayerInfo(NNSSndArcInfoHasName):
+class NNSSndArcPlayerInfo(DataClass):
     _kind = CoreInfoType.PLAYER
     seqMax: 'B'
     padding: 'B'
     allocChBitFlag: 'H'
     heapSize: 'L'
 
+    def __post_init__(self):
+        super().__post_init__()
+        self.name = ''
+
 
 @dataclasses.dataclass
-class NNSSndArcStrmPlayerInfo(NNSSndArcInfoHasName):
+class NNSSndArcStrmPlayerInfo(DataClass):
     _kind = CoreInfoType.PLAYER2
     numChannels: 'B'
     chNoList_0: 'B'
     chNoList_1: 'B'
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.name = ''
 
 
 @dataclasses.dataclass
