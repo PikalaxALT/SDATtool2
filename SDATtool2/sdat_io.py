@@ -114,7 +114,7 @@ class SdatIO:
         """Reads a string from the buffer at the given offset.
         If offset is 0 or not supplied, returns an empty string.
         This handles the case where a symbol is anonymous."""
-        if offset == 0:
+        if 0 in (base, offset):
             return ''
         pos = base + offset
         end = self.data.find(b'\0', pos)
@@ -154,17 +154,25 @@ class SdatIO:
             raise ValueError('unrecognized argument for "whence"')
         self.cursor = min(max(new, 0), len(self.data))
 
-    def read_struct(self, struct: NamedStruct, offset: int = None) -> CStruct:
+    def read_struct(self, struct: NamedStruct, base: int = None, offset: int = None) -> CStruct:
         """Reads a C struct from the SDAT at an offset.
         If offset is None (the default), the cursor is advanced."""
+        if 0 in (base, offset):
+            return None
+        if base is not None and offset is not None:
+            offset += base
         ret = struct.unpack_from(self.data, offset if offset is not None else self.cursor)
         if offset is None:
             self.cursor += struct.size
         return ret
 
-    def read_array(self, struct: NamedStruct, offset: int = None) -> list[CStruct]:
+    def read_array(self, struct: NamedStruct, base: int = None, offset: int = None) -> list[CStruct]:
         """Reads an array of C structs from the SDAT at an offset.
         If offset is None (the default), the cursor is advanced."""
+        if 0 in (base, offset):
+            return []
+        if base is not None and offset is not None:
+            offset += base
         ret = list(struct.unpack_array_from(self.data, offset if offset is not None else self.cursor))
         if offset is None:
             self.cursor += 4 + len(ret) * struct.size
@@ -184,6 +192,7 @@ class SdatIO:
         """Writes a list of dataclass as a C length-encoded array.
         If offset is None (the default), the object is appended to the buffer
         and the cursor is advanced."""
+        assert offset != 0
         if not objs:
             self.write_long(offset, 0)
         else:

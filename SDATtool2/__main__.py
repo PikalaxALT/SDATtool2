@@ -47,19 +47,19 @@ class Namespace(argparse.Namespace):
 
         # Read the symbol block
         if header.symbolDataOffset != 0:
-            symb_header = self.SDAT.read_struct(info.NNSSndSymbolAndInfoOffsets, header.symbolDataOffset)
+            symb_header = self.SDAT.read_struct(info.NNSSndSymbolAndInfoOffsets, offset=header.symbolDataOffset)
             symbols = info.SymbolData.from_offsets(symb_header, header.symbolDataOffset, self.SDAT)
         else:
             symb_header = None
             symbols = None
 
         # Read the file block
-        fat_header = self.SDAT.read_struct(info.NNSSndArcFat, header.fatOffset)
-        fat_entries = self.SDAT.read_array(info.NNSSndArcFileInfo, header.fatOffset + fat_header.size)
+        fat_header = self.SDAT.read_struct(info.NNSSndArcFat, offset=header.fatOffset)
+        fat_entries = self.SDAT.read_array(info.NNSSndArcFileInfo, offset=header.fatOffset + fat_header.size)
         files = [x.read_file(header.fileImageOffset, self.SDAT) for x in fat_entries]
 
         # Read the info block
-        info_header = self.SDAT.read_struct(info.NNSSndSymbolAndInfoOffsets, header.infoOffset)
+        info_header = self.SDAT.read_struct(info.NNSSndSymbolAndInfoOffsets, offset=header.infoOffset)
         infos = info.InfoData.from_offsets(info_header, header.infoOffset, self.SDAT)
         infos.set_symbols(symbols)
 

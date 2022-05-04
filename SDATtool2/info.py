@@ -140,11 +140,14 @@ class NNSSndArcSeqArcOffset(DataClass):
     table: 'L'
 
     @classmethod
-    def read_seqarc_strings(cls, offset: int, sdat: SdatIO):
+    def read_seqarc_strings(cls, base: int, offset: int, sdat: SdatIO):
+        if 0 in (base, offset):
+            return []
+
         def inner():
-            for x in sdat.read_array(cls, offset):
+            for x in sdat.read_array(cls, base, offset):
                 symbol = sdat.get_string(offset, x.symbol)
-                table = NNSSndArcOffsetTable.read_strings(offset + x.table, sdat)
+                table = NNSSndArcOffsetTable.read_strings(offset, x.table, sdat)
                 yield [symbol, table]
         return list(inner())
 
@@ -177,7 +180,9 @@ class NNSSndArcFileInfo(DataClass):
     mem: 'L'
     reserved: 'L'
 
-    def read_file(self, base: int, sdat: SdatIO) -> bytearray:
+    def read_file(self, base: int, sdat: SdatIO) -> typing.ByteString:
+        if base == 0:
+            return b''
         return sdat.data[base + self.offset:base + self.offset + self.size_]
 
 
@@ -211,15 +216,21 @@ class NNSSndArcOffsetTable(DataClass):
 
     @classmethod
     def read_all(cls, sbcls: NamedStruct, base: int, offset: int, sdat: SdatIO):
-        return [sdat.read_struct(sbcls, base + x.offset) for x in sdat.read_array(cls, base + offset)]
+        if 0 in (base, offset):
+            return []
+        return [sdat.read_struct(sbcls, base, x.offset) for x in sdat.read_array(cls, base, offset)]
 
     @classmethod
     def read_arrays(cls, sbcls: NamedStruct, base: int, offset: int, sdat: SdatIO, list_factory=list):
-        return [list_factory(sdat.read_array(sbcls, base + x.offset)) for x in sdat.read_array(cls, base + offset)]
+        if 0 in (base, offset):
+            return []
+        return [list_factory(sdat.read_array(sbcls, base, x.offset)) for x in sdat.read_array(cls, base, offset)]
 
     @classmethod
     def read_strings(cls, base: int, offset: int, sdat: SdatIO):
-        return [sdat.get_string(base, x.offset) for x in sdat.read_array(cls, base + offset)]
+        if 0 in (base, offset):
+            return []
+        return [sdat.get_string(base, x.offset) for x in sdat.read_array(cls, base, offset)]
 
 
 # Non-C-types
@@ -243,7 +254,7 @@ class SymbolData:
     def from_offsets(cls, header: NNSSndSymbolAndInfoOffsets, offset: int, sdat: SdatIO):
         return cls(
             NNSSndArcOffsetTable.read_strings(offset, header.seqOffset, sdat),
-            NNSSndArcSeqArcOffset.read_seqarc_strings(offset + header.seqArcOffset, sdat),
+            NNSSndArcSeqArcOffset.read_seqarc_strings(offset, header.seqArcOffset, sdat),
             NNSSndArcOffsetTable.read_strings(offset, header.bankOffset, sdat),
             NNSSndArcOffsetTable.read_strings(offset, header.waveArcOffset, sdat),
             NNSSndArcOffsetTable.read_strings(offset, header.playerOffset, sdat),
@@ -297,6 +308,7 @@ class InfoData:
                     if not info.name:
                         info.name = f'{info._kind.name}_{i:03d}'
                 if hasattr(info, 'fileId'):
+                    assert info.fileId < 65536
                     if info.fileId >= len(self.filenames):
                         self.filenames += ['' for _ in range(info.fileId - len(self.filenames) + 1)]
                     self.filenames[info.fileId] = self.filenames[info.fileId] or os.path.join(
@@ -306,20 +318,27 @@ class InfoData:
                     )
                     info.filename = self.filenames[info.fileId]
 
+    @staticmethod
+    def single_to_dict(info, index, idx2=None):
+        if not dataclasses.is_dataclass(info):
+            return {}
+        ret = dataclasses.asdict(info)
+        ret['name'] = getattr(info, 'name', f'{info._kind.name}_{index:03d}' + '' if idx2 is None else f'_{idx2:03d}')
+        if hasattr(info, 'arc_names'):
+            ret['arc_names'] = info.arc_names
+        if hasattr(info, 'filename'):
+            ret['filename'] = info.filename
+        return ret
+
     def to_dict(self):
         result: dict[str, list[dict]] = {}
         for kind, infolist in zip(CoreInfoType, self):
             result[kind.name] = []
             for i, info in enumerate(infolist):
                 if isinstance(info, collections.abc.Iterable):
-                    result[kind.name].append([dataclasses.asdict(x) for x in info])
+                    result[kind.name].append([InfoData.single_to_dict(x, i, j) for j, x in enumerate(info)])
                 else:
-                    result[kind.name].append(dataclasses.asdict(info))
-                result[kind.name][-1]['name'] = getattr(info, 'name', f'{kind.name}_{i:03d}')
-                if hasattr(info, 'arc_names'):
-                    result[kind.name][-1]['arc_names'] = info.arc_names
-                if hasattr(info, 'filename'):
-                    result[kind.name][-1]['filename'] = info.filename
+                    result[kind.name].append(InfoData.single_to_dict(info, i))
         return result
 
     def dump_files(self, files, outdir):
