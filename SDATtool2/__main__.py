@@ -50,7 +50,6 @@ class Namespace(argparse.Namespace):
             symb_header = self.SDAT.read_struct(info.NNSSndSymbolAndInfoOffsets, offset=header.symbolDataOffset)
             symbols = info.SymbolData.from_offsets(symb_header, header.symbolDataOffset, self.SDAT)
         else:
-            symb_header = None
             symbols = None
 
         # Read the file block
@@ -61,17 +60,18 @@ class Namespace(argparse.Namespace):
         # Read the info block
         info_header = self.SDAT.read_struct(info.NNSSndSymbolAndInfoOffsets, offset=header.infoOffset)
         infos = info.InfoData.from_offsets(info_header, header.infoOffset, self.SDAT)
-        infos.set_symbols(symbols)
+        if symbols is not None:
+            infos.set_symbols(symbols)
 
         # Dump the info block
         info_dict = infos.to_dict()
         with open(os.path.join(self.folder, 'Info.json'), 'w') as outf:
-            json.dump(info_dict, outf)
+            json.dump(info_dict, outf, indent=4)
 
         # Dump the files
         infos.dump_files(files, self.folder)
         with open(os.path.join(self.folder, 'Files.json'), 'w') as outf:
-            json.dump(infos.filenames, outf)
+            json.dump(infos.filenames, outf, indent=4)
 
     def main_build(self):
         """The main logic for building an SDAT from a directory tree"""
