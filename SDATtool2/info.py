@@ -22,6 +22,16 @@ class NNSSndArcSeqInfo(DataClass):
         super().__post_init__()
         self.name = ''
         self.filename = ''
+        self.bank = None
+        self.player = None
+
+    def to_dict(self):
+        ret = dataclasses.asdict(self)
+        if self.bank is not None:
+            ret['bank'] = self.bank.name
+        if self.player is not None:
+            ret['player'] = self.player.name
+        return ret
 
 
 @dataclasses.dataclass
@@ -49,6 +59,20 @@ class NNSSndArcBankInfo(DataClass):
         super().__post_init__()
         self.name = ''
         self.filename = ''
+        self.waveArcNo = [x for x in [
+            self.waveArcNo_0,
+            self.waveArcNo_1,
+            self.waveArcNo_2,
+            self.waveArcNo_3
+        ] if x != 65535]
+        self.waveArc = []
+
+    def to_dict(self):
+        return {
+            'fileId': self.fileId,
+            'waveArcNo': self.waveArcNo,
+            'waveArc': [waveArc.name for waveArc in self.waveArc]
+        }
 
 
 @dataclasses.dataclass
@@ -76,6 +100,12 @@ class NNSSndArcWaveArcInfo(DataClass):
     @flags.setter
     def flags(self, value):
         self.raw = (self.raw & ~0xFF000000) | ((value & 0xFF) << 24)
+
+    def to_dict(self):
+        return {'fileId': self.fileId, 'flags': self.flags}
+
+    def to_tuple(self):
+        return (self.fileId, self.flags)
 
 
 @dataclasses.dataclass
@@ -120,10 +150,21 @@ class NNSSndArcStrmPlayerInfo(DataClass):
 
 @dataclasses.dataclass
 class NNSSndArcGroupItem(DataClass):
+    _kind = CoreInfoType.GROUP
+
     type: 'B'
     loadFlags: 'B'
     padding: 'H'
     index: 'L'
+
+    def __post_init__(self):
+        self.seq = None
+
+    def to_dict(self):
+        ret = dataclasses.asdict(self)
+        if self.seq is not None:
+            ret['seq'] = self.seq.name
+        return ret
 
 
 class NNSSndArcGroupInfo(list):
@@ -317,13 +358,26 @@ class InfoData:
                         info.name + info._kind.file_type.ext
                     )
                     info.filename = self.filenames[info.fileId]
+                if isinstance(info, NNSSndArcSeqInfo):
+                    info.bank = self.bank[info.bankNo]
+                    info.player = self.player[info.playerNo]
+                elif isinstance(info, NNSSndArcBankInfo):
+                    info.waveArc = [self.waveArc[x] for x in info.waveArcNo]
+                elif isinstance(info, NNSSndArcGroupInfo):
+                    for i, x in enumerate(info):
+                        x.name = f'{info.name}_{i:03d}'
+                        x.seq = self.seq[x.index]
+
+    @staticmethod
+    def make_name(info, index, idx2=None):
+        return getattr(info, 'name', f'{info._kind.name}_{index:03d}' + ('' if idx2 is None else f'_{idx2:03d}'))
 
     @staticmethod
     def single_to_dict(info, index, idx2=None):
         if not dataclasses.is_dataclass(info):
             return {}
-        ret = dataclasses.asdict(info)
-        ret['name'] = getattr(info, 'name', f'{info._kind.name}_{index:03d}' + '' if idx2 is None else f'_{idx2:03d}')
+        ret = info.to_dict() if hasattr(info, 'to_dict') else dataclasses.asdict(info)
+        ret['name'] = InfoData.make_name(info, index, idx2)
         if hasattr(info, 'arc_names'):
             ret['arc_names'] = info.arc_names
         if hasattr(info, 'filename'):
@@ -331,14 +385,20 @@ class InfoData:
         return ret
 
     def to_dict(self):
-        result: dict[str, list[dict]] = {}
+        result = {}
         for kind, infolist in zip(CoreInfoType, self):
-            result[kind.name] = []
+            result[kind.name] = {}
             for i, info in enumerate(infolist):
+                if info is None:
+                    continue
                 if isinstance(info, collections.abc.Iterable):
-                    result[kind.name].append([InfoData.single_to_dict(x, i, j) for j, x in enumerate(info)])
+                    name = InfoData.make_name(info, i) if hasattr(info, '_kind') else ''
+                    result[kind.name][i] = {
+                        'name': name,
+                        'list': [InfoData.single_to_dict(x, i, j) for j, x in enumerate(info)],
+                    }
                 else:
-                    result[kind.name].append(InfoData.single_to_dict(info, i))
+                    result[kind.name][i] = InfoData.single_to_dict(info, i)
         return result
 
     def dump_files(self, files, outdir):
