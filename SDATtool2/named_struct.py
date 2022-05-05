@@ -59,19 +59,19 @@ class DataClass:
         return value.to_bytes(4, cls.__byteorder__)
 
     @classmethod
-    def unpack(cls, buffer: typing.ByteString) -> CStruct:
+    def unpack(cls: NamedStruct, buffer: typing.ByteString) -> CStruct:
         """Like struct.Struct().unpack, but returns an instance of the
         data class instead of a tuple."""
         return cls(*cls._struct.unpack(buffer))
 
     @classmethod
-    def unpack_from(cls, buffer: typing.ByteString, offset=0) -> CStruct:
+    def unpack_from(cls: NamedStruct, buffer: typing.ByteString, offset=0) -> CStruct:
         """Like struct.Struct().unpack_from, but returns an instance of the
         data class instead of a tuple."""
         return cls(*cls._struct.unpack_from(buffer, offset=offset))
 
     @classmethod
-    def iter_unpack(cls, buffer: typing.ByteString) -> collections.abc.Iterator[CStruct]:
+    def iter_unpack(cls: NamedStruct, buffer: typing.ByteString) -> collections.abc.Iterator[CStruct]:
         """Like struct.Struct().iter_unpack, but returns an instance of the
         data class instead of a tuple."""
         for tup in cls._struct.iter_unpack(buffer):

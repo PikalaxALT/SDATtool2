@@ -5,6 +5,7 @@ import typing
 
 from .named_struct import DataClass, NamedStruct
 from .sdat_io import SdatIO, CoreInfoType
+from .sseq import SeqParser
 
 
 @dataclasses.dataclass
@@ -312,6 +313,12 @@ class SymbolData:
 
 # Non-C-types
 @dataclasses.dataclass
+class NativeFileInfo:
+    name: str = ''
+    kind: CoreInfoType = 8
+
+
+@dataclasses.dataclass
 class InfoData:
     seq: list[NNSSndArcSeqInfo] = dataclasses.field(default_factory=list)
     seqArc: list[NNSSndArcSeqArcInfo] = dataclasses.field(default_factory=list)
@@ -328,7 +335,7 @@ class InfoData:
             yield getattr(self, field.name)
 
     def __post_init__(self):
-        self.filenames = []
+        self.filenames: list[NativeFileInfo] = []
 
     @classmethod
     def from_offsets(cls, header: NNSSndSymbolAndInfoOffsets, offset: int, sdat: SdatIO):
@@ -357,13 +364,15 @@ class InfoData:
                 if hasattr(info, 'fileId'):
                     assert info.fileId < 65536
                     if info.fileId >= len(self.filenames):
-                        self.filenames += ['' for _ in range(info.fileId - len(self.filenames) + 1)]
-                    self.filenames[info.fileId] = self.filenames[info.fileId] or os.path.join(
-                        'Files',
-                        info._kind.name,
-                        info.name + info._kind.file_type.ext
-                    )
-                    info.filename = self.filenames[info.fileId]
+                        self.filenames += [NativeFileInfo() for _ in range(info.fileId - len(self.filenames) + 1)]
+                    if not self.filenames[info.fileId].name:
+                        self.filenames[info.fileId].name = os.path.join(
+                            'Files',
+                            info._kind.name,
+                            info.name + info._kind.file_type.ext
+                        )
+                        self.filenames[info.fileId].kind = info._kind
+                    info.filename = self.filenames[info.fileId].name
                 if isinstance(info, NNSSndArcSeqInfo):
                     info.bank = self.bank[info.bankNo]
                     info.player = self.player[info.playerNo]
@@ -408,14 +417,23 @@ class InfoData:
         return result
 
     def dump_files(self, files, outdir):
+        seq_parser = SeqParser()
         for kind, infolist in zip(CoreInfoType, self):
             if kind.file_type is not None and infolist:
                 os.makedirs(os.path.join(outdir, 'Files', kind.name), exist_ok=True)
         if len(self.filenames) < len(files):
-            self.filenames.extend('' for _ in range(len(files) - len(self.filenames)))
+            self.filenames.extend(NativeFileInfo() for _ in range(len(files) - len(self.filenames)))
         for i, (name, file) in enumerate(zip(self.filenames, files)):
-            if not name:
+            if not name.name:
                 os.makedirs(os.path.join(outdir, 'Files', 'Unknown'), exist_ok=True)
-                name = self.filenames[i] = os.path.join('Files', 'Unknown', f'UNK_{i:05d}.bin')
-            with open(os.path.join(outdir, name), 'wb') as ofp:
+                name.name = os.path.join('Files', 'Unknown', f'UNK_{i:05d}.bin')
+            with open(os.path.join(outdir, name.name), 'wb') as ofp:
                 ofp.write(file)
+            if name.kind is CoreInfoType.SEQ:
+                txtfile = name.name.replace(CoreInfoType.SEQ.file_type.ext, '.txt')
+                seq_parser.set_buffer(file)
+                seqname = os.path.basename(name.name.replace(CoreInfoType.SEQ.file_type.ext, ''))
+                with open(os.path.join(outdir, txtfile), 'w') as ofp:
+                    for line in seq_parser.parse():
+                        line = line.format(seqname=seqname)
+                        print(line, file=ofp)

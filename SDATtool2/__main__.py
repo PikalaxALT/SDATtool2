@@ -78,7 +78,7 @@ class Namespace(argparse.Namespace):
         # Dump the files
         infos.dump_files(files, self.folder)
         with open(os.path.join(self.folder, 'Files.json'), 'w') as outf:
-            json.dump(infos.filenames, outf, indent=4)
+            json.dump([name.name for name in infos.filenames], outf, indent=4)
 
     def main_build(self):
         """The main logic for building an SDAT from a directory tree"""

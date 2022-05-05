@@ -1,5 +1,7 @@
 import enum
 import typing
+import dataclasses
+from .named_struct import DataClass
 
 
 class SNDSeqVal(enum.Enum):
@@ -62,16 +64,54 @@ class SseqCommandId(enum.Enum):
     TrackEnd = 0xFF
 
 
+@dataclasses.dataclass
+class NNSSndSeqData(DataClass):
+    signature: '4s'
+    byteOrder: 'H'
+    version: 'H'
+    fileSize: 'L'
+    headerSize: 'H'
+    dataBlocks: 'H'
+    kind: 'L'
+    size_: 'L'
+    baseOffset: 'L'
+
+    def __post_init__(self):
+        assert self.signature == b'SSEQ'
+        assert self.byteOrder == 0xFEFF
+        assert self.version == 0x0100
+        assert self.kind == int.from_bytes(b'DATA', 'little')
+
+
 class SeqParser:
     note_names = ['C_', 'C#', 'D_', 'D#', 'E_', 'F_', 'F#', 'G_', 'G#', 'A_', 'A#', 'B_']
 
-    def __init__(self, buffer: typing.ByteString):
-        self.view = buffer
-        self.cursor = 0
+    def __init__(self, buffer: typing.ByteString = None):
         self.labels = {}
+        self.commands = {}
+        self.ntracks = 0
+        self.trackMask = 0
+        if buffer is not None:
+            self.header = NNSSndSeqData.unpack_from(buffer)
+            self.view = bytes(buffer).rstrip(b'\0')
+            self.cursor = self.header.baseOffset
+            cmd = self.read_u8()
+            if cmd == 0xFE:
+                self.trackMask = self.read_u16()
+                self.ntracks = sum(1 for i in range(16) if ((self.trackMask >> i) & 1))
+            else:
+                self.cursor -= 1
+            self.labels[self.cursor - self.header.baseOffset] = f'{{seqname:s}}_Tk00'
+        else:
+            self.header = None
+            self.view = None
+            self.cursor = -1
 
     def set_buffer(self, buffer: typing.ByteString):
         self.__init__(buffer)
+
+    def rewind(self):
+        self.cursor = self.header.baseOffset
 
     def read_unsigned(self, nbytes):
         x = int.from_bytes(self.view[self.cursor:self.cursor + nbytes], 'little')
@@ -99,8 +139,9 @@ class SeqParser:
             while True:
                 b = self.read_u8()
                 ret = (ret << 7) | (b & 0x7F)
-                if b & 0x80:
+                if not (b & 0x80):
                     break
+            assert ret <= 0xFFFFFFFF
             ret = ret,
         elif valueType is SNDSeqVal.SND_SEQ_VAL_VAR:
             ret = self.read_u8(),
@@ -117,7 +158,7 @@ class SeqParser:
         octave = cmd // 12
         velocity = self.read_u8()
         length = self.read_value(valueType, SNDSeqVal.SND_SEQ_VAL_U8)
-        return f'{pitch}{octave}', (velocity, length)
+        return f'{pitch}{octave}', (velocity,) + length
     
     def get_command(self):
         valueType = SNDSeqVal.SND_SEQ_VAL_NOINIT
@@ -137,10 +178,12 @@ class SeqParser:
             command = SseqCommandId(cmd)
         except ValueError:
             command = None
-        high = cmd & 0xF0
         arg = ()
+        high = cmd & 0xF0
+        validx = -1
         if high == 0x80:
-            arg = (self.read_value(valueType, SNDSeqVal.SND_SEQ_VAL_VLV),)
+            arg = self.read_value(valueType, SNDSeqVal.SND_SEQ_VAL_VLV)
+            validx = 0
         elif high == 0x90:
             if command is SseqCommandId.Pointer:
                 trackno = self.read_u8()
@@ -149,23 +192,73 @@ class SeqParser:
             elif command is SseqCommandId.Jump or command is SseqCommandId.Call:
                 arg = (self.read_u24(),)
         elif high in (0xC0, 0xD0):
-            arg = (self.read_value(valueType, SNDSeqVal.SND_SEQ_VAL_U8),)
+            arg = self.read_value(valueType, SNDSeqVal.SND_SEQ_VAL_U8)
+            validx = 0
         elif high == 0xE0:
-            arg = (self.read_value(valueType, SNDSeqVal.SND_SEQ_VAL_U16),)
+            arg = self.read_value(valueType, SNDSeqVal.SND_SEQ_VAL_U16)
+            validx = 0
         elif high == 0xB0:
             varnum = self.read_u8()
             param = self.read_value(valueType, SNDSeqVal.SND_SEQ_VAL_U16)
-            arg = (varnum, param)
-        return command, arg
+            arg = (varnum,) + param
+            validx = 1
+        if command is None:
+            arg = (cmd,) + arg
+        return command, arg, validx
 
     def parse_track(self):
         while self.cursor < len(self.view):
+            addr = self.cursor
             cmd, valueType = self.get_command()
             if (cmd & 0x80) == 0:
                 cmdstr, params = self.parse_note(cmd, valueType)
+                validx = -1
             else:
-                cmdstr, params = self.parse_cmd(cmd, valueType)
-            yield cmdstr, params, valueType
+                cmdstr, params, validx = self.parse_cmd(cmd, valueType)
+            yield addr, cmdstr, params, valueType, validx
+
+    def scan_commands(self):
+        for addr, cmdstr, params, valueType, validx in self.parse_track():
+            self.commands[addr] = (cmdstr, params, valueType, validx)
+            if cmdstr is SseqCommandId.Pointer:
+                trkno, addr = params
+                self.labels[addr] = f'{{seqname:s}}_Tk{trkno:02d}'
+            elif cmdstr is SseqCommandId.Jump or cmdstr is SseqCommandId.Call:
+                addr, = params
+                self.labels[addr] = f'{{seqname:s}}_Sub{addr:04X}'
+
+    def iter_format_commands(self):
+        # Trust that dicts are ordered in Python3
+        for addr, (cmdstr, params, valueType, validx) in self.commands.items():
+            if addr - self.header.baseOffset in self.labels:
+                yield f'{self.labels[addr - self.header.baseOffset]}: @ 0x{addr - self.header.baseOffset:04X}'
+            if isinstance(cmdstr, SseqCommandId):
+                if params:
+                    params_l = [x for x in params]
+                    if cmdstr is SseqCommandId.Pointer:
+                        params_l[1] = f'{self.labels[params_l[1]]} @ 0x{params_l[1]:04X}'
+                    elif cmdstr is SseqCommandId.Jump or cmdstr is SseqCommandId.Call:
+                        params_l[0] = self.labels[params_l[0]]
+                    if validx != -1 and valueType is not SNDSeqVal.SND_SEQ_VAL_NOINIT:
+                        valueType_s = valueType.name.replace('SND_SEQ_VAL_', '')
+                        params_l = params_l[:validx] + [f'{valueType_s}({", ".join(map(str, params_l[validx:]))})']
+                    yield f'\t{cmdstr.name} {", ".join(map(str, params_l))}'
+                else:
+                    yield f'\t{cmdstr.name}'
+                if cmdstr is SseqCommandId.LoopEnd or cmdstr is SseqCommandId.TrackEnd:
+                    yield ''
+            elif isinstance(cmdstr, str):
+                yield f'\t{cmdstr}, {params[0]}, {params[1]}'
+            elif cmdstr is None:
+                cmdidx, *params = params
+                cmdstr = f'SeqUnkCmd_x{cmdidx:02X}'
+                if params:
+                    yield f'\t{cmdstr} {", ".join(str(x) for x in params)}'
+                else:
+                    yield f'\t{cmdstr}'
 
     def parse(self):
-        pass
+        # First pass to get labels
+        self.scan_commands()
+        # Second pass to print
+        return self.iter_format_commands()
