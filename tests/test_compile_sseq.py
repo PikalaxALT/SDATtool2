@@ -2,7 +2,7 @@ import SDATtool2.sseq
 import hexdump
 import difflib
 
-SEQNAME = 'SEQ_GS_P_EYE_ROCKET'
+SEQNAME = 'SEQ_GS_CHAMPROAD'
 prefix = f'gs_sound_data/Files/SEQ/{SEQNAME}'
 txtfilename = f'{prefix}.txt'
 sseqfilename = f'{prefix}.sseq'

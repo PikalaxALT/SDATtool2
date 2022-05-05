@@ -89,6 +89,7 @@ class SeqConverter:
 
 
 class SseqToTxtConverter(SeqConverter):
+    """Dumps a binary SSEQ file to asm-like text file"""
     def __init__(self, buffer: typing.ByteString = None):
         self.labels = {}
         self.commands = {}
@@ -111,20 +112,25 @@ class SseqToTxtConverter(SeqConverter):
             self.cursor = -1
 
     def set_buffer(self, buffer: typing.ByteString):
+        """Resets the disassembler with a new input file"""
         self.__init__(buffer)
 
     def read_integer(self, nbytes, *, signed=False):
+        """Reads an integer of given length and signedness (default: unsigned)"""
         x = int.from_bytes(self.view[self.cursor:self.cursor + nbytes], 'little', signed=signed)
         self.cursor += nbytes
         return x
 
     def read_8bit(self, *, signed=False):
+        """Reads an (un)signed 8-bit integer"""
         return self.read_integer(1, signed=signed)
 
     def read_16bit(self, *, signed=False):
+        """Reads an (un)signed 16-bit integer"""
         return self.read_integer(2, signed=signed)
 
     def read_24bit(self, *, signed=False):
+        """Reads an (un)signed 8-bit integer. Used for offset values."""
         return self.read_integer(3, signed=signed)
 
     def read_varlen(self):
@@ -198,6 +204,8 @@ class SseqToTxtConverter(SeqConverter):
                 arg = (self.read_24bit(),)
         elif high in (0xC0, 0xD0):
             arg = self.read_value(valueType, SNDSeqVal.SND_SEQ_VAL_U8)
+            if valueType is SNDSeqVal.SND_SEQ_VAL_NOINIT and command is SseqCommandId.Pan:
+                arg = arg[0] - 0x40,
             validx = 0
         elif high == 0xE0:
             arg = self.read_value(valueType, SNDSeqVal.SND_SEQ_VAL_U16)
@@ -285,6 +293,8 @@ class TxtToSseqConverter(SeqConverter):
         self.tracks_mask = 1
 
     def write_integer(self, value: int, nbytes, offset=None):
+        if value < 0:
+            value += 1 << (8 * nbytes)
         buffer = value.to_bytes(nbytes, 'little')
         if offset is None:
             self.compiled += buffer
@@ -395,6 +405,8 @@ class TxtToSseqConverter(SeqConverter):
         elif high in (0xC0, 0xD0):
             arg, = args
             self.handle_var_arg(arg, var_arg, SNDSeqVal.SND_SEQ_VAL_U8)
+            if var_arg is None and cmd is SseqCommandId.Pan:
+                self.compiled[-1] = (self.compiled[-1] + 0x40) & 0xFF
         elif high == 0xE0:
             arg, = args
             self.handle_var_arg(arg, var_arg, SNDSeqVal.SND_SEQ_VAL_U16)
