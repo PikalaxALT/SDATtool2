@@ -61,7 +61,7 @@ class Namespace(argparse.Namespace):
         fat_header = self.SDAT.read_struct(info.NNSSndArcFat, offset=header.fatOffset)
         assert fat_header.kind == int.from_bytes(b'FAT ', 'little')
         fat_entries = self.SDAT.read_array(info.NNSSndArcFileInfo, offset=header.fatOffset + fat_header.size)
-        files = [x.read_file(header.fileImageOffset + info.NNSSndArcFile.size, self.SDAT) for x in fat_entries]
+        files = [x.read_file(self.SDAT) for x in fat_entries]
 
         # Read the info block
         info_header = self.SDAT.read_struct(info.NNSSndSymbolAndInfoOffsets, offset=header.infoOffset)

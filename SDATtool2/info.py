@@ -221,10 +221,8 @@ class NNSSndArcFileInfo(DataClass):
     mem: 'L'
     reserved: 'L'
 
-    def read_file(self, base: int, sdat: SdatIO) -> typing.ByteString:
-        if base == 0:
-            return b''
-        return sdat[base + self.offset:base + self.offset + self.size_]
+    def read_file(self, sdat: SdatIO) -> typing.ByteString:
+        return sdat[self.offset:self.offset + self.size_]
 
 
 @dataclasses.dataclass
