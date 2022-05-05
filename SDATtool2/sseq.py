@@ -272,7 +272,7 @@ class SseqToTxtConverter(SeqConverter):
 
 class TxtToSseqConverter(SeqConverter):
     LABEL_PAT = re.compile(r'(?P<symbol>\w+):')
-    NOTE_PAT = re.compile(r'\t(?P<conditional>IFTRUE )?(?P<note>[A-G][_#])(?P<octave>\d) (?P<velocity>\d+), (?P<length>.+)')
+    NOTE_PAT = re.compile(r'\t(?P<conditional>IFTRUE )?(?P<note>[A-G][_#])(?P<octave>\d), (?P<velocity>\d+), (?P<length>.+)')
     CMD_PAT = re.compile(r'\t(?P<conditional>IFTRUE )?(?P<command>\w+)(?P<args>.*)')
     ARG_LEN = re.compile(r'(?P<kind>\w+)\((?P<args>.+?)\)')
     UNK_COMMAND = re.compile(r'SeqUnkCmd_x(?P<index>[0-9A-F]{2})')
@@ -305,7 +305,8 @@ class TxtToSseqConverter(SeqConverter):
         while value:
             buffer += ((value & 0x7F) | 0x80).to_bytes(1, 'little')
             value >>= 7
-        buffer[-1] &= 0x7F
+        buffer[0] &= 0x7F
+        buffer = buffer[::-1]
         nbytes = len(buffer)
         if offset is None:
             self.compiled += buffer
@@ -330,7 +331,7 @@ class TxtToSseqConverter(SeqConverter):
             elif default is SNDSeqVal.SND_SEQ_VAL_U8:
                 self.write_8bits(int(raw))
             elif default is SNDSeqVal.SND_SEQ_VAL_U16:
-                self.write_8bits(int(raw))
+                self.write_16bits(int(raw))
             else:
                 raise ValueError('invalid default arg type')
         elif var_arg['kind'] == 'RAN':
@@ -383,8 +384,8 @@ class TxtToSseqConverter(SeqConverter):
                 trackno = int(trackno)
                 if self.tracks_mask == 1:
                     self.compiled = bytearray(3) + self.compiled
-                    self.labels = {key: value + 3 for key, value in self.labels}
-                    self.relocs = {key + 3: value for key, value in self.relocs}
+                    self.labels = {key: value + 3 for key, value in self.labels.items()}
+                    self.relocs = {key + 3: value for key, value in self.relocs.items()}
                 self.tracks_mask |= 1 << trackno
                 self.write_8bits(trackno)
                 self.add_reloc(label)
@@ -404,6 +405,7 @@ class TxtToSseqConverter(SeqConverter):
 
     def compile(self, file: typing.TextIO):
         for line in file:
+            line = line.split('@')[0].rstrip()
             match = TxtToSseqConverter.LABEL_PAT.match(line)
             if match is not None:
                 self.labels[match['symbol']] = len(self.compiled)
@@ -420,4 +422,17 @@ class TxtToSseqConverter(SeqConverter):
         if self.tracks_mask != 1:
             self.write_8bits(0xFE, 0)
             self.write_16bits(self.tracks_mask, 1)
-        return self.compiled
+        if len(self.compiled) & 3:
+            self.compiled += bytes(4 - (len(self.compiled) & 3))
+        header = NNSSndSeqData(
+            b'SSEQ',
+            0xFEFF,
+            0x0100,
+            NNSSndSeqData.size + len(self.compiled),
+            0x0010,
+            1,
+            int.from_bytes(b'DATA', 'little'),
+            12 + len(self.compiled),
+            NNSSndSeqData.size
+        )
+        return header.pack() + self.compiled
