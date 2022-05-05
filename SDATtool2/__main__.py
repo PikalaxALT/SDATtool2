@@ -44,21 +44,28 @@ class Namespace(argparse.Namespace):
 
         # Read the header
         header = self.SDAT.read_struct(info.NNSSndArcHeader)
+        assert header.signature == b'SDAT'
+        assert header.byteOrder == 0xFEFF
+        assert header.version == 0x0100
+        assert header.headerSize == header.size
 
         # Read the symbol block
         if header.symbolDataOffset != 0:
             symb_header = self.SDAT.read_struct(info.NNSSndSymbolAndInfoOffsets, offset=header.symbolDataOffset)
+            assert symb_header.kind == int.from_bytes(b'SYMB', 'little')
             symbols = info.SymbolData.from_offsets(symb_header, header.symbolDataOffset, self.SDAT)
         else:
             symbols = None
 
         # Read the file block
         fat_header = self.SDAT.read_struct(info.NNSSndArcFat, offset=header.fatOffset)
+        assert fat_header.kind == int.from_bytes(b'FAT ', 'little')
         fat_entries = self.SDAT.read_array(info.NNSSndArcFileInfo, offset=header.fatOffset + fat_header.size)
-        files = [x.read_file(header.fileImageOffset, self.SDAT) for x in fat_entries]
+        files = [x.read_file(header.fileImageOffset + info.NNSSndArcFile.size, self.SDAT) for x in fat_entries]
 
         # Read the info block
         info_header = self.SDAT.read_struct(info.NNSSndSymbolAndInfoOffsets, offset=header.infoOffset)
+        assert info_header.kind == int.from_bytes(b'INFO', 'little')
         infos = info.InfoData.from_offsets(info_header, header.infoOffset, self.SDAT)
         if symbols is not None:
             infos.set_symbols(symbols)

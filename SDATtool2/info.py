@@ -224,11 +224,17 @@ class NNSSndArcFileInfo(DataClass):
     def read_file(self, base: int, sdat: SdatIO) -> typing.ByteString:
         if base == 0:
             return b''
-        return sdat.data[base + self.offset:base + self.offset + self.size_]
+        return sdat[base + self.offset:base + self.offset + self.size_]
 
 
 @dataclasses.dataclass
 class NNSSndArcFat(DataClass):
+    kind: 'L'
+    size_: 'L'  # avoid namespace conflict with base class property "size"
+
+
+@dataclasses.dataclass
+class NNSSndArcFile(DataClass):
     kind: 'L'
     size_: 'L'  # avoid namespace conflict with base class property "size"
 
@@ -249,6 +255,7 @@ class NNSSndArcHeader(DataClass):
     fatSize: 'L'
     fileImageOffset: 'L'
     fileImageSize: 'L'
+    dummy: '16s'
 
 
 @dataclasses.dataclass
@@ -339,6 +346,7 @@ class InfoData:
         )
 
     def set_symbols(self, symbols: SymbolData):
+        """Unify the INFO objects with the SYMB objects"""
         for infolist, symbollist in zip(self, symbols):
             for i, (info, symb) in enumerate(zip(infolist, symbollist)):
                 if hasattr(info, 'name'):
@@ -381,7 +389,7 @@ class InfoData:
         if hasattr(info, 'arc_names'):
             ret['arc_names'] = info.arc_names
         if hasattr(info, 'filename'):
-            ret['filename'] = info.filename
+            ret['filename'] = info.filename.replace('\\', '/')  # use Unix pathsep for JSON
         return ret
 
     def to_dict(self):
@@ -402,14 +410,14 @@ class InfoData:
         return result
 
     def dump_files(self, files, outdir):
-        for kind in CoreInfoType:
-            if kind.file_type is not None:
+        for kind, infolist in zip(CoreInfoType, self):
+            if kind.file_type is not None and infolist:
                 os.makedirs(os.path.join(outdir, 'Files', kind.name), exist_ok=True)
-        os.makedirs(os.path.join(outdir, 'Files', 'Unknown'), exist_ok=True)
         if len(self.filenames) < len(files):
             self.filenames.extend('' for _ in range(len(files) - len(self.filenames)))
         for i, (name, file) in enumerate(zip(self.filenames, files)):
             if not name:
+                os.makedirs(os.path.join(outdir, 'Files', 'Unknown'), exist_ok=True)
                 name = self.filenames[i] = os.path.join('Files', 'Unknown', f'UNK_{i:05d}.bin')
             with open(os.path.join(outdir, name), 'wb') as ofp:
                 ofp.write(file)

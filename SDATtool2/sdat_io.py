@@ -40,13 +40,13 @@ class CoreInfoType(enum.Enum):
         return file_types[self.value]
 
 
-class SdatIO:
+class SdatIO(bytearray):
     """Wrapper class for the SDAT buffer"""
 
     def __init__(self, infile: typing.BinaryIO = None):
         """Creates an SdatIO object from an optional input file.
         If no file is provided, creates an empty SdatIO buffer."""
-        self.data = bytearray() if infile is None else bytearray(infile.read())
+        super().__init__(0 if infile is None else infile.read())
         self.cursor = 0
 
     def write(self, x: int, *, size=1, pos: int = None):
@@ -54,10 +54,10 @@ class SdatIO:
         If pos is None, appends the data and advances the cursor."""
         val = x.to_bytes(size, 'little')
         if pos is None:
-            self.data += val
-            self.cursor = len(self.data)
+            self.__iadd__(val)
+            self.cursor = len(self)
         else:
-            self.data[pos:pos + size] = val
+            self[pos:pos + size] = val
 
     def append_long(self, x: int):
         """Writes a 32-bit value to the end of the buffer, and advances the cursor."""
@@ -90,7 +90,7 @@ class SdatIO:
         if pos is None:
             pos = self.cursor
             self.cursor += size
-        return int.from_bytes(self.data[pos:pos + size], 'little')
+        return int.from_bytes(self[pos:pos + size], 'little')
 
     def read_long(self, pos: int = None):
         """Reads a 32-bit value from the buffer.
@@ -117,8 +117,8 @@ class SdatIO:
         if 0 in (base, offset):
             return ''
         pos = base + offset
-        end = self.data.find(b'\0', pos)
-        ret = self.data[pos:end].decode('ascii')
+        end = self.find(b'\0', pos)
+        ret = self[pos:end].decode('ascii')
         if offset is None:
             self.cursor = end + 1
         return ret
@@ -133,7 +133,7 @@ class SdatIO:
         new = (self.cursor + mask) & ~mask
         if new > self.cursor:
             if out:
-                self.data += bytes(new - self.cursor)
+                self.__iadd__(bytes(new - self.cursor))
             self.cursor = new
 
     def seek(self, pos: int, whence=os.SEEK_SET):
@@ -149,10 +149,10 @@ class SdatIO:
         elif whence == os.SEEK_CUR:
             new = self.cursor + pos
         elif whence == os.SEEK_END:
-            new = len(self.data) - pos
+            new = len(self) - pos
         else:
             raise ValueError('unrecognized argument for "whence"')
-        self.cursor = min(max(new, 0), len(self.data))
+        self.cursor = min(max(new, 0), len(self))
 
     def read_struct(self, struct: NamedStruct, base: int = None, offset: int = None) -> CStruct:
         """Reads a C struct from the SDAT at an offset.
@@ -161,7 +161,7 @@ class SdatIO:
             return None
         if base is not None and offset is not None:
             offset += base
-        ret = struct.unpack_from(self.data, offset if offset is not None else self.cursor)
+        ret = struct.unpack_from(self, offset if offset is not None else self.cursor)
         if offset is None:
             self.cursor += struct.size
         return ret
@@ -173,7 +173,7 @@ class SdatIO:
             return []
         if base is not None and offset is not None:
             offset += base
-        ret = list(struct.unpack_array_from(self.data, offset if offset is not None else self.cursor))
+        ret = list(struct.unpack_array_from(self, offset if offset is not None else self.cursor))
         if offset is None:
             self.cursor += 4 + len(ret) * struct.size
         return ret
@@ -183,10 +183,10 @@ class SdatIO:
         If offset is None (the default), the object is appended to the buffer
         and the cursor is advanced."""
         if offset is None:
-            self.data += obj.pack()
-            self.cursor = len(self.data)
+            self.__iadd__(obj.pack())
+            self.cursor = len(self)
         else:
-            obj.pack_into(self.data, offset)
+            obj.pack_into(self, offset)
 
     def write_array(self, objs: list[CStruct], offset: int = None):
         """Writes a list of dataclass as a C length-encoded array.
@@ -198,7 +198,7 @@ class SdatIO:
         else:
             cls: NamedStruct = objs[0].__class__
             if offset is None:
-                self.data += cls.pack_array(objs)
-                self.cursor = len(self.data)
+                self.__iadd__(cls.pack_array(objs))
+                self.cursor = len(self)
             else:
-                cls.pack_array_into(self.data, offset, objs)
+                cls.pack_array_into(self, offset, objs)
