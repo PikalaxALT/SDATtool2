@@ -5,7 +5,7 @@ import typing
 
 from .named_struct import DataClass, NamedStruct
 from .sdat_io import SdatIO, CoreInfoType
-from .sseq import SeqParser
+from .sseq import SseqToTxtConverter
 
 
 @dataclasses.dataclass
@@ -417,7 +417,7 @@ class InfoData:
         return result
 
     def dump_files(self, files, outdir):
-        seq_parser = SeqParser()
+        seq_parser = SseqToTxtConverter()
         for kind, infolist in zip(CoreInfoType, self):
             if kind.file_type is not None and infolist:
                 os.makedirs(os.path.join(outdir, 'Files', kind.name), exist_ok=True)
