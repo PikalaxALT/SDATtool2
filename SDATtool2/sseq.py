@@ -245,7 +245,7 @@ class SeqParser:
                     yield f'\t{cmdstr.name} {", ".join(map(str, params_l))}'
                 else:
                     yield f'\t{cmdstr.name}'
-                if cmdstr is SseqCommandId.LoopEnd or cmdstr is SseqCommandId.TrackEnd:
+                if cmdstr is SseqCommandId.Return or cmdstr is SseqCommandId.TrackEnd:
                     yield ''
             elif isinstance(cmdstr, str):
                 yield f'\t{cmdstr}, {params[0]}, {params[1]}'
