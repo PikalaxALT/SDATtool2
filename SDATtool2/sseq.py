@@ -6,6 +6,7 @@ from .named_struct import DataClass
 
 
 class SNDSeqVal(enum.Enum):
+    """Enum for SSEQ command param types"""
     SND_SEQ_VAL_U8 = 0
     SND_SEQ_VAL_U16 = 1
     SND_SEQ_VAL_VLV = 2
@@ -85,6 +86,7 @@ class NNSSndSeqData(DataClass):
 
 
 class SeqConverter:
+    """Base class to share the note names list."""
     note_names = ['C_', 'C#', 'D_', 'D#', 'E_', 'F_', 'F#', 'G_', 'G#', 'A_', 'A#', 'B_']
 
 
@@ -134,6 +136,7 @@ class SseqToTxtConverter(SeqConverter):
         return self.read_integer(3, signed=signed)
 
     def read_varlen(self):
+        """Reads a variable length big-endian integer"""
         ret = 0
         while True:
             b = self.read_8bit()
@@ -144,6 +147,9 @@ class SseqToTxtConverter(SeqConverter):
         return ret
 
     def read_value(self, valueType: SNDSeqVal, default: SNDSeqVal):
+        """Reads an argument of given type. May be overridden to be a var idx or a rand range."""
+
+        # py3.10: match valueType
         if valueType is SNDSeqVal.SND_SEQ_VAL_NOINIT:
             valueType = default
         if valueType is SNDSeqVal.SND_SEQ_VAL_U8:
@@ -163,6 +169,7 @@ class SseqToTxtConverter(SeqConverter):
         return ret
     
     def parse_note(self, cmd, valueType: SNDSeqVal):
+        """Parse a note command from the buffer"""
         pitch = SseqToTxtConverter.note_names[cmd % 12]
         octave = cmd // 12
         velocity = self.read_8bit()
@@ -170,6 +177,9 @@ class SseqToTxtConverter(SeqConverter):
         return f'{pitch}{octave}', (velocity,) + length
     
     def get_command(self):
+        """Get the command index from the buffer. Handles descriptors which determine whether the command
+        is conditional or has a random or variable-defined
+        value."""
         conditional = False
         valueType = SNDSeqVal.SND_SEQ_VAL_NOINIT
         cmd = self.read_8bit()
@@ -185,17 +195,21 @@ class SseqToTxtConverter(SeqConverter):
         return cmd, valueType, conditional
 
     def parse_cmd(self, cmd, valueType: SNDSeqVal):
+        """Parse a track script command from the buffer"""
         try:
             command = SseqCommandId(cmd)
         except ValueError:
             command = None
         arg = ()
+        # Replicate the logic of the ARM7 component
         high = cmd & 0xF0
         validx = -1
         if high == 0x80:
+            # Commands with variable-length-value arg
             arg = self.read_value(valueType, SNDSeqVal.SND_SEQ_VAL_VLV)
             validx = 0
         elif high == 0x90:
+            # Branching logic
             if command is SseqCommandId.Pointer:
                 trackno = self.read_8bit()
                 address = self.read_24bit()
@@ -203,14 +217,18 @@ class SseqToTxtConverter(SeqConverter):
             elif command is SseqCommandId.Jump or command is SseqCommandId.Call:
                 arg = (self.read_24bit(),)
         elif high in (0xC0, 0xD0):
+            # Commands with u8 arg
             arg = self.read_value(valueType, SNDSeqVal.SND_SEQ_VAL_U8)
-            if valueType is SNDSeqVal.SND_SEQ_VAL_NOINIT and command is SseqCommandId.Pan:
-                arg = arg[0] - 0x40,
+            # The Pan command arg is offset by 0x40
+            if command is SseqCommandId.Pan and valueType in (SNDSeqVal.SND_SEQ_VAL_NOINIT, SNDSeqVal.SND_SEQ_VAL_RAN):
+                arg = tuple(x - 0x40 for x in arg)
             validx = 0
         elif high == 0xE0:
+            # Commands with u16 arg
             arg = self.read_value(valueType, SNDSeqVal.SND_SEQ_VAL_U16)
             validx = 0
         elif high == 0xB0:
+            # Commands involving variables
             varnum = self.read_8bit()
             param = self.read_value(valueType, SNDSeqVal.SND_SEQ_VAL_U16)
             arg = (varnum,) + param
@@ -220,6 +238,8 @@ class SseqToTxtConverter(SeqConverter):
         return command, arg, validx
 
     def parse_track(self):
+        """Core logic for first pass over the binary.
+        Consumes the entire buffer"""
         while self.cursor < len(self.view):
             addr = self.cursor
             cmd, valueType, conditional = self.get_command()
@@ -231,39 +251,52 @@ class SseqToTxtConverter(SeqConverter):
             yield addr, cmdstr, params, valueType, validx, conditional
 
     def scan_commands(self):
+        """Stores the sseq commands in a dict, as well as
+        any branch targets."""
         for addr, cmdstr, params, valueType, validx, conditional in self.parse_track():
             self.commands[addr] = (cmdstr, params, valueType, validx, conditional)
             if cmdstr is SseqCommandId.Pointer:
+                # Track header
                 trkno, addr = params
                 self.labels[addr] = f'{{seqname:s}}_Tk{trkno:02d}'
             elif cmdstr is SseqCommandId.Jump or cmdstr is SseqCommandId.Call:
+                # Branching logic
                 addr, = params
                 self.labels[addr] = f'{{seqname:s}}_Sub{addr:04X}'
 
     def iter_format_commands(self):
         # Trust that dicts are ordered in Python3
         for addr, (cmdstr, params, valueType, validx, conditional) in self.commands.items():
-            if addr - self.header.baseOffset in self.labels:
-                yield f'{self.labels[addr - self.header.baseOffset]}: @ 0x{addr - self.header.baseOffset:04X}'
+            addr -= self.header.baseOffset
+            if addr in self.labels:
+                yield f'{self.labels[addr]}: @ 0x{addr:04X}'
             cond_s = 'IFTRUE ' if conditional else ''
             if isinstance(cmdstr, SseqCommandId):
+                # Convert an sseq command statement to str
                 if params:
+                    # The command has args, let's parse them
                     params_l = [x for x in params]
                     if cmdstr is SseqCommandId.Pointer:
                         params_l[1] = f'{self.labels[params_l[1]]} @ 0x{params_l[1]:04X}'
                     elif cmdstr is SseqCommandId.Jump or cmdstr is SseqCommandId.Call:
                         params_l[0] = self.labels[params_l[0]]
                     if validx != -1 and valueType is not SNDSeqVal.SND_SEQ_VAL_NOINIT:
+                        # VAR takes one u8, but RAN takes two u16
+                        # Logic handles both cases seamlessly.
                         valueType_s = valueType.name.replace('SND_SEQ_VAL_', '')
-                        params_l = params_l[:validx] + [f'{valueType_s}({", ".join(map(str, params_l[validx:]))})']
+                        args_s = ', '.join(map(str, params_l[validx:]))
+                        params_l = params_l[:validx] + [f'{valueType_s}({args_s})']
                     yield f'\t{cond_s}{cmdstr.name} {", ".join(map(str, params_l))}'
                 else:
                     yield f'\t{cond_s}{cmdstr.name}'
                 if cmdstr is SseqCommandId.Return or cmdstr is SseqCommandId.TrackEnd:
                     yield ''
             elif isinstance(cmdstr, str):
+                # Convert a note command to str
                 yield f'\t{cond_s}{cmdstr}, {params[0]}, {params[1]}'
             elif cmdstr is None:
+                # Convert an unknown command to str
+                # This should be unreachable
                 cmdidx, *params = params
                 cmdstr = f'SeqUnkCmd_x{cmdidx:02X}'
                 if params:
@@ -279,6 +312,8 @@ class SseqToTxtConverter(SeqConverter):
 
 
 class TxtToSseqConverter(SeqConverter):
+    """Convert a text dump of an sseq back to binary format"""
+
     LABEL_PAT = re.compile(r'(?P<symbol>\w+):')
     NOTE_PAT = re.compile(r'\t(?P<conditional>IFTRUE )?(?P<note>[A-G][_#])(?P<octave>\d), (?P<velocity>\d+), (?P<length>.+)')
     CMD_PAT = re.compile(r'\t(?P<conditional>IFTRUE )?(?P<command>\w+)(?P<args>.*)')
@@ -293,6 +328,7 @@ class TxtToSseqConverter(SeqConverter):
         self.tracks_mask = 1
 
     def write_integer(self, value: int, nbytes, offset=None):
+        """Sets an arbitrary integer value to the buffer"""
         if value < 0:
             value += 1 << (8 * nbytes)
         buffer = value.to_bytes(nbytes, 'little')
@@ -302,15 +338,19 @@ class TxtToSseqConverter(SeqConverter):
             self.compiled[offset:offset + nbytes] = buffer
 
     def write_8bits(self, value: int, offset=None):
+        """Sets an 8-bit integer to the buffer"""
         self.write_integer(value, 1, offset=offset)
 
     def write_16bits(self, value: int, offset=None):
+        """Sets a 16-bit integer to the buffer"""
         self.write_integer(value, 2, offset=offset)
 
     def write_24bits(self, value: int, offset=None):
+        """Sets a 24-bit integer to the buffer"""
         self.write_integer(value, 3, offset=offset)
 
     def write_varlen(self, value: int, offset=None):
+        """Sets a big-endian variable-length value to the buffer"""
         buffer = bytearray()
         while value:
             buffer += ((value & 0x7F) | 0x80).to_bytes(1, 'little')
@@ -324,6 +364,8 @@ class TxtToSseqConverter(SeqConverter):
             self.compiled[offset:offset + nbytes] = buffer
 
     def handle_prefix(self, match: re.Match, var_arg: re.Match):
+        """Encodes whether the command is conditional, and whether the
+        arg is VAR or RAN"""
         if match['conditional']:
             self.write_8bits(0xA2)
         if var_arg is not None:
@@ -335,6 +377,9 @@ class TxtToSseqConverter(SeqConverter):
                 raise ValueError('invalid overridden arg type')
 
     def handle_var_arg(self, raw: str, var_arg: re.Match, default: SNDSeqVal):
+        """For many commands, the last argument is a flex value.
+        A default type is supplied, but if a var_arg pattern is
+        found, it will encode that logic instead."""
         if var_arg is None:
             if default is SNDSeqVal.SND_SEQ_VAL_VLV:
                 self.write_varlen(int(raw))
@@ -351,15 +396,19 @@ class TxtToSseqConverter(SeqConverter):
             self.write_8bits(int(var_arg['args']))
 
     def add_reloc(self, label):
+        """Used in the first parsing phase to define a relocatable symbol."""
         self.relocs[len(self.compiled)] = label
         self.write_24bits(0)
 
     def dispatch_relocs(self):
+        """Used in the second parsing phase to assign all
+        relocatable symbols to their final offsets."""
         for addr, label in self.relocs.items():
             target = self.labels[label]
             self.write_24bits(target, offset=addr)
 
     def write_note(self, match: re.Match):
+        """Encode a note command"""
         pitch = TxtToSseqConverter.note_names.index(match['note']) + 12 * int(match['octave'])
         velocity = int(match['velocity'])
         var_arg = TxtToSseqConverter.ARG_LEN.match(match['length'])
@@ -369,10 +418,12 @@ class TxtToSseqConverter(SeqConverter):
         self.handle_var_arg(match['length'], var_arg, SNDSeqVal.SND_SEQ_VAL_VLV)
 
     def write_command(self, match: re.Match):
+        """Encode an sseq script command"""
         try:
             cmd = getattr(SseqCommandId, match['command'])
             cmd_idx = cmd.value
         except AttributeError:
+            # This should be unreachable
             cmd_match = TxtToSseqConverter.UNK_COMMAND.match(match['command'])
             if cmd_match is None:
                 raise
@@ -385,14 +436,26 @@ class TxtToSseqConverter(SeqConverter):
             var_arg = None
         self.handle_prefix(match, var_arg)
         self.write_8bits(cmd_idx)
+        # Replicate the logic from the ARM7 binary
         high = cmd_idx & 0xF0
         if high == 0x80:
+            # Commands with a variable-length-value arg
             self.handle_var_arg(args[0], var_arg, SNDSeqVal.SND_SEQ_VAL_VLV)
         elif high == 0x90:
+            # Commands relating to branching logic
             if cmd is SseqCommandId.Pointer:
                 trackno, label = args
                 trackno = int(trackno)
                 if self.tracks_mask == 1:
+                    # If there's more than just the one track,
+                    # a command is emitted to encode this information.
+                    # This is excluded from the text file, so
+                    # its presence is inferred from the Pointer
+                    # commands that follow.
+                    # As a consequence, all labels and relocs
+                    # should be shifted by 3 bytes.
+                    # Usually the relocs dict is empty, and the
+                    # labels dict only has the first track's pointer.
                     self.compiled = bytearray(3) + self.compiled
                     self.labels = {key: value + 3 for key, value in self.labels.items()}
                     self.relocs = {key + 3: value for key, value in self.relocs.items()}
@@ -403,19 +466,34 @@ class TxtToSseqConverter(SeqConverter):
                 label, = args
                 self.add_reloc(label)
         elif high in (0xC0, 0xD0):
+            # Commands with a u8 arg
             arg, = args
             self.handle_var_arg(arg, var_arg, SNDSeqVal.SND_SEQ_VAL_U8)
-            if var_arg is None and cmd is SseqCommandId.Pan:
-                self.compiled[-1] = (self.compiled[-1] + 0x40) & 0xFF
+            if cmd is SseqCommandId.Pan:
+                # The Pan argument is offset by 0x40
+                if var_arg is None:
+                    self.compiled[-1] = (self.compiled[-1] + 0x40) & 0xFF
+                elif var_arg['kind'] == 'RAN':
+                    low = int.from_bytes(self.compiled[-4:-2], 'little', signed=True)
+                    high = int.from_bytes(self.compiled[-2:], 'little', signed=True)
+                    low += 0x40
+                    high += 0x40
+                    self.write_16bits(low, len(self.compiled) - 4)
+                    self.write_16bits(high, len(self.compiled) - 2)
         elif high == 0xE0:
+            # Commands with a u16 arg
             arg, = args
             self.handle_var_arg(arg, var_arg, SNDSeqVal.SND_SEQ_VAL_U16)
         elif high == 0xB0:
+            # Commands related to variables
             varnum, param = args
             self.write_8bits(int(varnum))
             self.handle_var_arg(param, var_arg, SNDSeqVal.SND_SEQ_VAL_U16)
 
     def compile(self, file: typing.TextIO):
+        """Logic for assembling a text file to SSEQ."""
+
+        # The main parsing loop. Single-pass.
         for line in file:
             line = line.split('@')[0].rstrip()
             match = TxtToSseqConverter.LABEL_PAT.match(line)
@@ -430,19 +508,27 @@ class TxtToSseqConverter(SeqConverter):
             if match is not None:
                 self.write_command(match)
                 continue
+
+        # Now that all labels are known, assign their offsets
+        # within the seq.
         self.dispatch_relocs()
+        # If there's more than one track, encode that information here.
         if self.tracks_mask != 1:
             self.write_8bits(0xFE, 0)
             self.write_16bits(self.tracks_mask, 1)
+        # Pad to 32-bit alignment
         if len(self.compiled) & 3:
             self.compiled += bytes(4 - (len(self.compiled) & 3))
+        # Build the header
         header = NNSSndSeqData(
+            # SNDBinaryFileHeader
             b'SSEQ',
             0xFEFF,
             0x0100,
             NNSSndSeqData.size + len(self.compiled),
             0x0010,
             1,
+            # SNDBinaryBlockHeader
             int.from_bytes(b'DATA', 'little'),
             12 + len(self.compiled),
             NNSSndSeqData.size
