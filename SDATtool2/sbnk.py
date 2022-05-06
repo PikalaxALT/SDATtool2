@@ -72,6 +72,9 @@ class SNDInstData(DataClass):
     release: 'B'
     pan: 'B'
 
+    def __post_init__(self):
+        self.type = SNDInstType(self.type)
+
     @property
     def wave(self):
         return [self.wave_0, self.wave_1]
@@ -148,11 +151,12 @@ class SNDBankData(DataClass):
         self = cls.unpack_from(file)
         self.instOffsets = list(SNDInstOffset.unpack_array_from(file, cls.size))
         for offset in self.instOffsets:
-            assert offset.type is not SNDInstType.SND_INST_INVALID
             if offset.type is SNDInstType.SND_INST_DRUM_SET:
                 self.insts.append(SNDDrumSet.from_binary(file, offset.offset))
             elif offset.type is SNDInstType.SND_INST_KEY_SPLIT:
                 self.insts.append(SNDKeySplit.from_binary(file, offset.offset))
+            elif offset.type is SNDInstType.SND_INST_INVALID:
+                self.insts.append(None)
             else:
                 self.insts.append(SNDInstParam.unpack_from(file, offset.offset))
         return self
