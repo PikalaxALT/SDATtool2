@@ -1,7 +1,9 @@
 import collections.abc
 import dataclasses
+import itertools
 import os
 import typing
+import warnings
 
 from .named_struct import DataClass, NamedStruct
 from .sdat_io import SdatIO, CoreInfoType
@@ -60,13 +62,23 @@ class NNSSndArcBankInfo(DataClass):
         super().__post_init__()
         self.name = ''
         self.filename = ''
-        self.waveArcNo = [x for x in [
+        self.waveArc = []
+
+    @property
+    def waveArcNo(self):
+        return [x for x in [
             self.waveArcNo_0,
             self.waveArcNo_1,
             self.waveArcNo_2,
             self.waveArcNo_3
         ] if x != 65535]
-        self.waveArc = []
+
+    @waveArcNo.setter
+    def waveArcNo(self, value: collections.abc.Collection[int]):
+        if len(value) > 4:
+            warnings.warn('Setting waveArcNo with %d elements, but the capacity is 4' % len(value))
+        for i, x in itertools.zip_longest(range(4), value[:4], fillvalue=0xFFFF):
+            setattr(self, f'waveArcNo_{i}', x)
 
     def to_dict(self):
         return {
