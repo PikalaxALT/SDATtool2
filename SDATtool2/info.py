@@ -10,11 +10,12 @@ from .named_struct import DataClass, NamedStruct
 from .sdat_io import SdatIO, CoreInfoType
 from .sseq import SseqToTxtConverter
 from .sbnk import SNDBankData
+from .swar import SNDWaveArc
 
 
 @dataclasses.dataclass
 class NNSSndArcSeqInfo(DataClass):
-    _kind = CoreInfoType.SEQ
+    info_type = CoreInfoType.SEQ
     fileId: 'L'
     bankNo: 'H'
     volume: 'B'
@@ -41,7 +42,7 @@ class NNSSndArcSeqInfo(DataClass):
 
 @dataclasses.dataclass
 class NNSSndArcSeqArcInfo(DataClass):
-    _kind = CoreInfoType.SEQARC
+    info_type = CoreInfoType.SEQARC
     fileId: 'L'
 
     def __post_init__(self):
@@ -53,7 +54,7 @@ class NNSSndArcSeqArcInfo(DataClass):
 
 @dataclasses.dataclass
 class NNSSndArcBankInfo(DataClass):
-    _kind = CoreInfoType.BANK
+    info_type = CoreInfoType.BANK
     fileId: 'L'
     waveArcNo_0: 'H'
     waveArcNo_1: 'H'
@@ -92,7 +93,7 @@ class NNSSndArcBankInfo(DataClass):
 
 @dataclasses.dataclass
 class NNSSndArcWaveArcInfo(DataClass):
-    _kind = CoreInfoType.WAVARC
+    info_type = CoreInfoType.WAVARC
     raw: 'L'
 
     def __post_init__(self):
@@ -125,7 +126,7 @@ class NNSSndArcWaveArcInfo(DataClass):
 
 @dataclasses.dataclass
 class NNSSndArcStrmInfo(DataClass):
-    _kind = CoreInfoType.STRM
+    info_type = CoreInfoType.STRM
     fileId: 'L'
     volume: 'B'
     playerPrio: 'B'
@@ -140,7 +141,7 @@ class NNSSndArcStrmInfo(DataClass):
 
 @dataclasses.dataclass
 class NNSSndArcPlayerInfo(DataClass):
-    _kind = CoreInfoType.PLAYER
+    info_type = CoreInfoType.PLAYER
     seqMax: 'B'
     padding: 'B'
     allocChBitFlag: 'H'
@@ -153,7 +154,7 @@ class NNSSndArcPlayerInfo(DataClass):
 
 @dataclasses.dataclass
 class NNSSndArcStrmPlayerInfo(DataClass):
-    _kind = CoreInfoType.PLAYER2
+    info_type = CoreInfoType.PLAYER2
     numChannels: 'B'
     chNoList_0: 'B'
     chNoList_1: 'B'
@@ -165,7 +166,7 @@ class NNSSndArcStrmPlayerInfo(DataClass):
 
 @dataclasses.dataclass
 class NNSSndArcGroupItem(DataClass):
-    _kind = CoreInfoType.GROUP
+    info_type = CoreInfoType.GROUP
 
     type: 'B'
     loadFlags: 'B'
@@ -183,7 +184,7 @@ class NNSSndArcGroupItem(DataClass):
 
 
 class NNSSndArcGroupInfo(list):
-    _kind = CoreInfoType.GROUP
+    info_type = CoreInfoType.GROUP
 
     def __init__(self, *args, name='', **kwargs):
         super().__init__(*args, **kwargs)
@@ -357,7 +358,11 @@ class NativeFileInfo:
         with open(txtfile, 'w') as ofp:
             json.dump(sbnk_dict, ofp, indent=4)
 
-    def dump_text(self, outdir):
+    def dump_swar(self, txtfile: str):
+        swar = SNDWaveArc.from_binary(self.contents)
+        swar.to_wavs(txtfile)
+
+    def dump_text(self, outdir: str):
         if not isinstance(self.kind, CoreInfoType):
             return
         txtfile = os.path.join(outdir, self.name.replace(self.kind.file_type.bin_ext, self.kind.file_type.txt_ext))
@@ -365,6 +370,8 @@ class NativeFileInfo:
             self.dump_sseq_to_txt(txtfile)
         elif self.kind is CoreInfoType.BANK:
             self.dump_sbnk_to_json(txtfile)
+        elif self.kind is CoreInfoType.WAVARC:
+            self.dump_swar(txtfile)
 
 
 @dataclasses.dataclass
@@ -399,21 +406,22 @@ class InfoData:
             NNSSndArcOffsetTable.read_all(NNSSndArcStrmInfo, offset, header.strmOffset, sdat),
         )
 
-    def set_name(self, info, symb, info_idx):
-        if info._kind is CoreInfoType.SEQARC:
+    @staticmethod
+    def set_name(info, symb, info_idx):
+        if info.info_type is CoreInfoType.SEQARC:
             info.name, info.arc_names = symb
         else:
             info.name = symb
         if not info.name:
-            info.name = f'{info._kind.name}_{info_idx:03d}'
+            info.name = f'{info.info_type.name}_{info_idx:03d}'
 
     def add_file(self, info, contents):
         if info.fileId >= len(self.file_descriptions):
             self.file_descriptions += [NativeFileInfo() for _ in range(info.fileId - len(self.file_descriptions) + 1)]
         desc = self.file_descriptions[info.fileId]
         if not desc.name:
-            desc.name = info._kind.make_file_name(info.name)
-            desc.kind = info._kind
+            desc.name = info.info_type.make_file_name(info.name)
+            desc.kind = info.info_type
             desc.contents = contents
         info.filename = desc.name
 
@@ -422,7 +430,7 @@ class InfoData:
         for infolist, symbollist in zip(self, symbols):
             for i, (info, symb) in enumerate(zip(infolist, symbollist)):
                 if hasattr(info, 'name'):
-                    self.set_name(info, symb, i)
+                    InfoData.set_name(info, symb, i)
                 if hasattr(info, 'fileId'):
                     self.add_file(info, files[info.fileId])
                 if isinstance(info, NNSSndArcSeqInfo):
@@ -437,7 +445,7 @@ class InfoData:
 
     @staticmethod
     def make_name(info, index, idx2=None):
-        return getattr(info, 'name', f'{info._kind.name}_{index:03d}' + ('' if idx2 is None else f'_{idx2:03d}'))
+        return getattr(info, 'name', f'{info.info_type.name}_{index:03d}' + ('' if idx2 is None else f'_{idx2:03d}'))
 
     @staticmethod
     def single_to_dict(info, index, idx2=None):
@@ -459,7 +467,7 @@ class InfoData:
                 if info is None:
                     continue
                 if isinstance(info, collections.abc.Iterable):
-                    name = InfoData.make_name(info, i) if hasattr(info, '_kind') else ''
+                    name = InfoData.make_name(info, i) if hasattr(info, 'info_type') else ''
                     result[kind.name][i] = {
                         'name': name,
                         'list': [InfoData.single_to_dict(x, i, j) for j, x in enumerate(info)],

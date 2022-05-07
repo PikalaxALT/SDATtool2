@@ -15,7 +15,7 @@ file_types = [
     FileType('.sseq', '.txt', b'SSEQ'),
     FileType('.ssar', '', b'SSAR'),
     FileType('.sbnk', '.json', b'SBNK'),
-    FileType('.swar', '', b'SWAR'),
+    FileType('.swar', '/Sound_{:d}.swav', b'SWAR'),
     None,
     None,
     None,
