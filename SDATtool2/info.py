@@ -330,6 +330,41 @@ class SymbolData:
 class NativeFileInfo:
     name: str = ''
     kind: CoreInfoType = 8
+    contents: bytes = b''
+
+    def write_binary(self, outdir: str):
+        with open(os.path.join(outdir, self.name), 'wb') as ofp:
+            ofp.write(self.contents)
+
+    def dump_sseq_to_txt(self, txtfile: str):
+        seq_parser = SseqToTxtConverter(self.contents)
+        seqname = os.path.basename(self.name.replace(CoreInfoType.SEQ.file_type.bin_ext, ''))
+        with open(txtfile, 'w') as ofp:
+            for line in seq_parser.parse():
+                line = line.format(seqname=seqname)
+                print(line, file=ofp)
+
+    def dump_sbnk_to_json(self, txtfile: str):
+        sbnk = SNDBankData.from_binary(self.contents)
+        sbnk_dict = {
+            'instruments': [
+                ({
+                    'type': offset.type.name
+                } | (inst.to_dict() if inst is not None else {}))
+                for offset, inst in zip(sbnk.instOffsets, sbnk.insts)
+            ]
+        }
+        with open(txtfile, 'w') as ofp:
+            json.dump(sbnk_dict, ofp, indent=4)
+
+    def dump_text(self, outdir):
+        if not isinstance(self.kind, CoreInfoType):
+            return
+        txtfile = os.path.join(outdir, self.name.replace(self.kind.file_type.bin_ext, self.kind.file_type.txt_ext))
+        if self.kind is CoreInfoType.SEQ:
+            self.dump_sseq_to_txt(txtfile)
+        elif self.kind is CoreInfoType.BANK:
+            self.dump_sbnk_to_json(txtfile)
 
 
 @dataclasses.dataclass
@@ -349,7 +384,7 @@ class InfoData:
             yield getattr(self, field.name)
 
     def __post_init__(self):
-        self.filenames: list[NativeFileInfo] = []
+        self.file_descriptions: list[NativeFileInfo] = []
 
     @classmethod
     def from_offsets(cls, header: NNSSndSymbolAndInfoOffsets, offset: int, sdat: SdatIO):
@@ -364,29 +399,32 @@ class InfoData:
             NNSSndArcOffsetTable.read_all(NNSSndArcStrmInfo, offset, header.strmOffset, sdat),
         )
 
-    def set_symbols(self, symbols: SymbolData):
+    def set_name(self, info, symb, info_idx):
+        if info._kind is CoreInfoType.SEQARC:
+            info.name, info.arc_names = symb
+        else:
+            info.name = symb
+        if not info.name:
+            info.name = f'{info._kind.name}_{info_idx:03d}'
+
+    def add_file(self, info, contents):
+        if info.fileId >= len(self.file_descriptions):
+            self.file_descriptions += [NativeFileInfo() for _ in range(info.fileId - len(self.file_descriptions) + 1)]
+        desc = self.file_descriptions[info.fileId]
+        if not desc.name:
+            desc.name = info._kind.make_file_name(info.name)
+            desc.kind = info._kind
+            desc.contents = contents
+        info.filename = desc.name
+
+    def set_symbols(self, symbols: SymbolData, files: list[typing.ByteString]):
         """Unify the INFO objects with the SYMB objects"""
         for infolist, symbollist in zip(self, symbols):
             for i, (info, symb) in enumerate(zip(infolist, symbollist)):
                 if hasattr(info, 'name'):
-                    if info._kind is CoreInfoType.SEQARC:
-                        info.name, info.arc_names = symb
-                    else:
-                        info.name = symb
-                    if not info.name:
-                        info.name = f'{info._kind.name}_{i:03d}'
+                    self.set_name(info, symb, i)
                 if hasattr(info, 'fileId'):
-                    assert info.fileId < 65536
-                    if info.fileId >= len(self.filenames):
-                        self.filenames += [NativeFileInfo() for _ in range(info.fileId - len(self.filenames) + 1)]
-                    if not self.filenames[info.fileId].name:
-                        self.filenames[info.fileId].name = os.path.join(
-                            'Files',
-                            info._kind.name,
-                            info.name + info._kind.file_type.ext
-                        )
-                        self.filenames[info.fileId].kind = info._kind
-                    info.filename = self.filenames[info.fileId].name
+                    self.add_file(info, files[info.fileId])
                 if isinstance(info, NNSSndArcSeqInfo):
                     info.bank = self.bank[info.bankNo]
                     info.player = self.player[info.playerNo]
@@ -430,37 +468,13 @@ class InfoData:
                     result[kind.name][i] = InfoData.single_to_dict(info, i)
         return result
 
-    def dump_files(self, files, outdir):
-        seq_parser = SseqToTxtConverter()
+    def dump_files(self, outdir):
         for kind, infolist in zip(CoreInfoType, self):
             if kind.file_type is not None and infolist:
                 os.makedirs(os.path.join(outdir, 'Files', kind.name), exist_ok=True)
-        if len(self.filenames) < len(files):
-            self.filenames.extend(NativeFileInfo() for _ in range(len(files) - len(self.filenames)))
-        for i, (name, file) in enumerate(zip(self.filenames, files)):
-            if not name.name:
+        for i, filedesc in enumerate(self.file_descriptions):
+            if not filedesc.name:
                 os.makedirs(os.path.join(outdir, 'Files', 'Unknown'), exist_ok=True)
-                name.name = os.path.join('Files', 'Unknown', f'UNK_{i:05d}.bin')
-            with open(os.path.join(outdir, name.name), 'wb') as ofp:
-                ofp.write(file)
-            if name.kind is CoreInfoType.SEQ:
-                txtfile = name.name.replace(CoreInfoType.SEQ.file_type.ext, '.txt')
-                seq_parser.set_buffer(file)
-                seqname = os.path.basename(name.name.replace(CoreInfoType.SEQ.file_type.ext, ''))
-                with open(os.path.join(outdir, txtfile), 'w') as ofp:
-                    for line in seq_parser.parse():
-                        line = line.format(seqname=seqname)
-                        print(line, file=ofp)
-            elif name.kind is CoreInfoType.BANK:
-                jsonfile = name.name.replace(CoreInfoType.BANK.file_type.ext, '.json')
-                sbnk = SNDBankData.from_binary(file)
-                sbnk_dict = {
-                    'instruments': [
-                        ({
-                            'type': offset.type.name
-                        } | (inst.to_dict() if inst is not None else {}))
-                        for offset, inst in zip(sbnk.instOffsets, sbnk.insts)
-                    ]
-                }
-                with open(os.path.join(outdir, jsonfile), 'w') as ofp:
-                    json.dump(sbnk_dict, ofp, indent=4)
+                filedesc.name = os.path.join('Files', 'Unknown', f'UNK_{i:05d}.bin')
+            filedesc.write_binary(outdir)
+            filedesc.dump_text(outdir)

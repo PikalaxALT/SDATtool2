@@ -6,19 +6,20 @@ from .named_struct import NamedStruct, CStruct
 
 class FileType(typing.NamedTuple):
     """Data class for SDAT member filetypes."""
-    ext: str = ''
+    bin_ext: str = ''
+    txt_ext: str = ''
     header: bytes = b''
 
 
 file_types = [
-    FileType('.sseq', b'SSEQ'),
-    FileType('.ssar', b'SSAR'),
-    FileType('.sbnk', b'SBNK'),
-    FileType('.swar', b'SWAR'),
+    FileType('.sseq', '.txt', b'SSEQ'),
+    FileType('.ssar', '', b'SSAR'),
+    FileType('.sbnk', '.json', b'SBNK'),
+    FileType('.swar', '', b'SWAR'),
     None,
     None,
     None,
-    FileType('.strm', b'STRM'),
+    FileType('.strm', '', b'STRM'),
     None,
 ]
 
@@ -38,6 +39,9 @@ class CoreInfoType(enum.Enum):
     def file_type(self):
         """Returns the FileType corresponding to the enum value."""
         return file_types[self.value]
+
+    def make_file_name(self, name):
+        return os.path.join('Files', self.name, name + self.file_type.bin_ext)
 
 
 class SdatIO(bytearray):

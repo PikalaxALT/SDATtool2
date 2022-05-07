@@ -68,7 +68,7 @@ class Namespace(argparse.Namespace):
         assert info_header.kind == int.from_bytes(b'INFO', 'little')
         infos = info.InfoData.from_offsets(info_header, header.infoOffset, self.SDAT)
         if symbols is not None:
-            infos.set_symbols(symbols)
+            infos.set_symbols(symbols, files)
 
         # Dump the info block
         info_dict = infos.to_dict()
@@ -76,9 +76,9 @@ class Namespace(argparse.Namespace):
             json.dump(info_dict, outf, indent=4)
 
         # Dump the files
-        infos.dump_files(files, self.folder)
+        infos.dump_files(self.folder)
         with open(os.path.join(self.folder, 'Files.json'), 'w') as outf:
-            json.dump([name.name for name in infos.filenames], outf, indent=4)
+            json.dump([desc.name for desc in infos.file_descriptions], outf, indent=4)
 
     def main_build(self):
         """The main logic for building an SDAT from a directory tree"""
