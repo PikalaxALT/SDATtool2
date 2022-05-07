@@ -4,10 +4,12 @@ import itertools
 import os
 import typing
 import warnings
+import json
 
 from .named_struct import DataClass, NamedStruct
 from .sdat_io import SdatIO, CoreInfoType
 from .sseq import SseqToTxtConverter
+from .sbnk import SNDBankData
 
 
 @dataclasses.dataclass
@@ -449,3 +451,16 @@ class InfoData:
                     for line in seq_parser.parse():
                         line = line.format(seqname=seqname)
                         print(line, file=ofp)
+            elif name.kind is CoreInfoType.BANK:
+                jsonfile = name.name.replace(CoreInfoType.BANK.file_type.ext, '.json')
+                sbnk = SNDBankData.from_binary(file)
+                sbnk_dict = {
+                    'instruments': [
+                        ({
+                            'type': offset.type.name
+                        } | (inst.to_dict() if inst is not None else {}))
+                        for offset, inst in zip(sbnk.instOffsets, sbnk.insts)
+                    ]
+                }
+                with open(os.path.join(outdir, jsonfile), 'w') as ofp:
+                    json.dump(sbnk_dict, ofp, indent=4)
