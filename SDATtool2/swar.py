@@ -1,8 +1,17 @@
 import dataclasses
 import os.path
 import typing
+import enum
 
 from .named_struct import DataClass
+
+
+class SNDWaveFormat(enum.Enum):
+    SND_WAVE_FORMAT_PCM8 = 0
+    SND_WAVE_FORMAT_PCM16 = 1
+    SND_WAVE_FORMAT_ADPCM = 2
+    SND_WAVE_FORMAT_PSG = 3
+    SND_WAVE_FORMAT_NOISE = 3
 
 
 @dataclasses.dataclass
@@ -19,7 +28,7 @@ class SWAVHeader(DataClass):
 
 @dataclasses.dataclass
 class SNDWaveData(DataClass):
-    format: 'B'
+    format_: 'B'
     loopflag: 'B'
     rate: 'H'
     timer: 'H'
@@ -28,6 +37,14 @@ class SNDWaveData(DataClass):
 
     def __post_init__(self):
         self.samples = b''
+
+    @property
+    def format(self):
+        return SNDWaveFormat(self.format_)
+
+    @format.setter
+    def format(self, value: SNDWaveFormat):
+        self.format_ = value.value
 
     @classmethod
     def from_binary(cls, file: typing.ByteString, begin: int, end: int):
