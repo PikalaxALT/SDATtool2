@@ -58,6 +58,7 @@ class SseqCommandId(enum.Enum):
     LoopStart = 0xD4
     Expression = 0xD5
     Print = 0xD6
+    Mute = 0xD7
     ModDelay = 0xE0
     Tempo = 0xE1
     PitchSweep = 0xE3
